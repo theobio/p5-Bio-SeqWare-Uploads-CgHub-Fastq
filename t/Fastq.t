@@ -29,7 +29,7 @@ sub testNewBAD {
     {
         eval{ $CLASS->new( "BAD_PARAM"); };
         $got = $@;
-        $want = qr/^Error string as reg\.exp\./;
+        $want = qr/^No parameter is allowed\./;
         like( $got, $want, "error with bad param");
     }
 }

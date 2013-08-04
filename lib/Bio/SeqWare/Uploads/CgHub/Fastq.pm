@@ -56,6 +56,10 @@ no parameters.
 
 sub new {
     my $class = shift;
+    my $param = shift;
+    if (defined $param) {
+        croak( "No parameter is allowed.");
+    }
     my $self = {};
     bless $self, $class;
     return $self;
