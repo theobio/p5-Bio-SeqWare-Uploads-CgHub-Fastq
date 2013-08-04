@@ -1,0 +1,28 @@
+# Perl
+Makefile
+Makefile.old
+Build
+Build.bat
+!Build/   # Commonly used directory for distributed user build script
+MYMETA.*
+# META.*  # NO - needed if remote git repo is to be installable (cpanm)
+.build/
+_build/
+cover_db/
+blib/
+inc/
+.last_cover_stats
+pod2htm*.tmp
+pm_to_blib
+
+# Perl: this repo
+p5-Bio-SeqWare-Uploads-CgHub-Fastq-*
+p5-Bio-SeqWare-Uploads-CgHub-Fastq-*.tar.gz
+
+# OS: Mac OS X
+.DS_Store
+
+# IDE: Eclipse
+.project
+.includepath
+
