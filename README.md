@@ -8,12 +8,6 @@ Version 0.000.001   \# PRE-RELEASE
 
 # SYNOPSIS
 
-
-
-
-
-Perhaps a little code snippet.
-
     use Bio::SeqWare::Uploads::CgHub::Fastq;
 
     my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
@@ -33,11 +27,56 @@ modifies it to do a fastq upload.
     my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
 
 Creates and returns a Bio::SeqWare::Uploads::CgHub::Fastq object. Takes
-no parameters.
+no parameters, providing one is a fatal error.
 
 # INSTANCE METHODS
 
-    NONE
+## run()
+
+    $obj->run();
+    my @allowedModes = qw( ZIP META VALIDATE UPLOAD ALL ); # Case unimportant
+    $obj->run( "all" );
+
+This is the "main" program loop, associated with running `upload-cghub-fastq`
+This method can be called with or without a parameter. If called without a
+parameter, it uses the value of the instances runMode property, all allowed
+values for that parameter are supported (case insenistive "ZIP", "META",
+"VALIDATE", "UPLOAD", "ALL"). Each parameter causes the associated "do..."
+method to be invoked, although "ALL"" causes each of the 4 do... methods to be
+invoked in order.
+
+This method will either succeed and return 1, or will trigger a fatal exit.
+
+## = doZip()
+
+    $obj->doZip();
+
+Looks through the database for fastqs that have not been zipped yet, makes
+sure nothing else is in the process of zipping them already, then zips them.
+Uses db transactions and marker status to ensure not treading on itself.
+'fastq-zip-start', fastq-zip-end'.
+
+
+
+## = doMeta()
+
+    $obj->doMeta();
+
+## = doValidate()
+
+    $obj->doValidate();
+
+## = doUpload()
+
+    $obj->doUpload();
+
+## = getAll()
+
+    my $settingsHR = $obj->getAll();
+    
+
+Retrieve a copy of the properties assoiciated with this object.
+ 
 
 # INTERNAL METHODS
 

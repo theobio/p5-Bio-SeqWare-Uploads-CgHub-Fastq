@@ -4,6 +4,7 @@ use 5.008;         # No reason, just being specific. Update your perl.
 use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
+use Bio::SeqWare::Config;   # Read the seqware config file
 
 =head1 NAME
 
@@ -20,10 +21,6 @@ Version 0.000.001   # PRE-RELEASE
 our $VERSION = '0.000001';   # PRE-RELEASE
 
 =head1 SYNOPSIS
-
-
-
-Perhaps a little code snippet.
 
     use Bio::SeqWare::Uploads::CgHub::Fastq;
 
@@ -57,19 +54,146 @@ no parameters, providing one is a fatal error.
 sub new {
     my $class = shift;
     my $param = shift;
-    if (defined $param) {
-        croak( "No parameter is allowed.");
+    unless (defined $param && ref( $param ) eq 'HASH') {
+        croak( "A hash-ref parameter is required." );
     }
-    my $self = {};
+    my %copy = %$param;
+    my $self = \%copy;
     bless $self, $class;
     return $self;
 }
 
 =head1 INSTANCE METHODS
 
-    NONE
+=cut
+
+=head2 run()
+
+  $obj->run();
+  my @allowedModes = qw( ZIP META VALIDATE UPLOAD ALL ); # Case unimportant
+  $obj->run( "all" );
+
+This is the "main" program loop, associated with running C<upload-cghub-fastq>
+This method can be called with or without a parameter. If called without a
+parameter, it uses the value of the instances runMode property, all allowed
+values for that parameter are supported (case insenistive "ZIP", "META",
+"VALIDATE", "UPLOAD", "ALL"). Each parameter causes the associated "do..."
+method to be invoked, although "ALL"" causes each of the 4 do... methods to be
+invoked in order.
+
+This method will either succeed and return 1, or will trigger a fatal exit.
 
 =cut
+
+sub run {
+    my $self = shift;
+    my $runMode = shift;
+    if (! defined $runMode) {
+        $runMode = $self->{'runMode'};
+    }
+    if (! defined $runMode || ref $runMode ) {
+        croak("Can't run unless specify a run mode.");
+    }
+    else {
+       $runMode = uc $runMode;
+    }
+    if ( $runMode eq "ALL" ) {
+        $self->run('ZIP');
+        $self->run('META');
+        $self->run('VALIDATE');
+        $self->run('UPLOAD');
+    }
+    elsif ($runMode eq "ZIP") {
+        $self->doZip();
+    }
+    elsif ($runMode eq "META") {
+        $self->doMeta();
+    }
+    elsif ($runMode eq "VALIDATE") {
+        $self->doValidate();
+    }
+    elsif ($runMode eq "UPLOAD") {
+        $self->doUpload();
+    }
+    else {
+        croak("Illegal runMode of \"$runMode\" specified.");
+    }
+    return 1;
+}
+
+=head2 = doZip()
+
+ $obj->doZip();
+
+Looks through the database for fastqs that have not been zipped yet, makes
+sure nothing else is in the process of zipping them already, then zips them.
+Uses db transactions and marker status to ensure not treading on itself.
+'fastq-zip-start', fastq-zip-end'.
+
+
+=cut
+
+  # BEGIN;
+  # SELECT hits FROM webpages WHERE url = '...' FOR UPDATE;
+  # -- client internally computes $newval = $hits + 1
+  # UPDATE webpages SET hits = $newval WHERE url = '...';
+  # COMMIT;
+
+sub doZip() {
+    my $self = shift;
+    return 1;
+
+}
+
+=head2 = doMeta()
+
+ $obj->doMeta();
+
+=cut
+
+sub doMeta() {
+    my $self = shift;
+    return 1;
+
+}
+
+=head2 = doValidate()
+
+ $obj->doValidate();
+
+=cut
+
+sub doValidate() {
+    my $self = shift;
+    return 1;
+
+}
+
+=head2 = doUpload()
+
+ $obj->doUpload();
+
+=cut
+
+sub doUpload() {
+    my $self = shift;
+    return 1;
+
+}
+
+=head2 = getAll()
+
+  my $settingsHR = $obj->getAll();
+  
+Retrieve a copy of the properties assoiciated with this object.
+ 
+=cut
+
+sub getAll() {
+    my $self = shift;
+    my %copy = %$self;
+    return \%copy;
+}
 
 =head1 INTERNAL METHODS
 
