@@ -50,7 +50,7 @@ modifies it to do a fastq upload.
     my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
 
 Creates and returns a Bio::SeqWare::Uploads::CgHub::Fastq object. Takes
-no parameters.
+no parameters, providing one is a fatal error.
 
 =cut
 
