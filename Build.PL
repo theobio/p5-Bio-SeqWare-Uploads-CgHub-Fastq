@@ -17,6 +17,7 @@ my $builder = Module::Build->new(
     },
     requires => {
         'perl'=> '0.008',
+        'Bio::SeqWare::Db::Connection'=>'0.000002',
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],
     create_makefile_pl => 'traditional',

@@ -5,6 +5,8 @@ use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
 use Bio::SeqWare::Config;   # Read the seqware config file
+use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
+use Data::Dumper;
 
 =head1 NAME
 
@@ -58,7 +60,12 @@ sub new {
         croak( "A hash-ref parameter is required." );
     }
     my %copy = %$param;
-    my $self = \%copy;
+    my $self = {
+        %copy,
+        '_laneId' => undef,
+        '_sampleId'    => undef,
+        '_zipUploadId' => undef,
+    };
     bless $self, $class;
     return $self;
 }
@@ -125,24 +132,138 @@ sub run {
 
  $obj->doZip();
 
-Looks through the database for fastqs that have not been zipped yet, makes
-sure nothing else is in the process of zipping them already, then zips them.
-Uses db transactions and marker status to ensure not treading on itself.
-'fastq-zip-start', fastq-zip-end'.
+Performs three steps:
 
+=over
+
+=item 1
+
+Identify a potential lane to zip and insert a new upload record, status =
+'zip_candidate' and set internal _zipUploadId value. If none found, return 0.
+To be tagged there must be an existing CGHUB upload record with an
+external_status = 'live' that is linked to a file record which shows up in
+vw_files, and that lane may not be linked to any existing CGHUB_FASTQ record 
+
+=item 2
+
+For the lane zipping, find corresponding file/files on system and zip them. If
+zip fails update upload record status = 'zip_error_no_wfID', 'zip_error_missing_fastq'
+'zip_error_tiny_fastq', 'zip_error_fastq_md5', 'zip_error_zip_failed',
+'zip_error_unknown', return undef.
+
+=item 3
+
+When done, validate output, calculate md5 sum, insert new file record
+(that points to workflow_run that generated fastq), and update upload
+status to zip_completed. If fails, update upload status=
+'zipval_error_missing_zip', 'zipval_error_tiny_zip', 'zipval_error_md5',
+'zipval_error_file_insert' 'zipval_error_unknown' and return undef.
+
+=back
+
+Database changes are done as transaction to allow parallel runs of this step.
+
+Upload records are inserted with target = 'CGHUB-zip', external-status of "",
+and status = "zip-started"
+
+File records are inserted with links via workflow_run_files and 
 
 =cut
 
-  # BEGIN;
-  # SELECT hits FROM webpages WHERE url = '...' FOR UPDATE;
-  # -- client internally computes $newval = $hits + 1
-  # UPDATE webpages SET hits = $newval WHERE url = '...';
-  # COMMIT;
 
-sub doZip() {
+sub doZip {
     my $self = shift;
-    return 1;
+    my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
+    my $dbh = $connectionBuilder->getConnection( {'RaiseError' => 0, 'AutoCommit' => 1} );
 
+    $self->_tagLaneforZipping();
+    $self->_startZipping();
+
+    $dbh->disconnect();
+
+    return 1;
+}
+
+=head2 _tagLaneforZipping()
+
+Internal method that takes no parmaeters. It returns 0 if no records exist to
+update, 1 if successeds. Dies on a bunch of database errors.
+
+Sets private data fields _zipUploadId, _laneId, _sampleId
+
+Inserts a new upload table record for CGHUB_FASTQ, for the same sample
+as an existing upload record for CGHUB, when the CGHUB record is for a live
+mapsplice upload and no CGHUB_FASTQ exists for that sample.
+
+=cut
+
+sub _tagLaneforZipping {
+    my $self = shift;
+    my $dbh = shift;
+
+    # First half of transaction, get lane id for possible update.
+
+    my $selectionSQL =
+        "-- select lanes with bam files uploaded to cghub.
+        SELECT vwf.lane_id, u.sample_id
+        FROM vw_files AS vwf, upload_file AS uf, upload AS u
+        WHERE vwf.file_id       = uf.file_id
+          AND uf.upload_id      = u.upload_id
+          AND u.target          = 'CGHUB'
+          AND u.external_status = 'live'
+          AND vwf.sample_id NOT IN (
+              -- Sample not already processed.
+              SELECT u.sample_id
+              FROM upload AS u
+              WHERE u.target      = 'CGHUB_FASTQ'
+          ) order by vwf.lane_id DESC limit 1";
+
+    $dbh->begin_work()
+            or die $dbh->errstr();  # Autocommit should be on.
+    my $selectionSTH = $dbh->prepare($selectionSQL)
+            or die $dbh->errstr();
+    $selectionSTH->execute()
+            or die $selectionSTH->errstr();
+    my $row_HR = $selectionSTH->fetchrow_hashref();
+    if (! defined $row_HR) {
+        if ($selectionSTH->err()) {
+            die $selectionSTH->errstr();
+        }
+        else {
+            return 0;  # RETURN - nothing to update.
+        }
+    }
+    $self->{'_laneId'} = $row_HR->{'lane_id'};
+    $self->{'_sampleId'} = $row_HR->{'sample_id'};
+
+    # Second half of transaction
+
+    my $insertUploadSQL = 
+        "--Inserting a new upload table record and catching the new id.
+         --Using postgres-specific extension to get id of inserted record.
+         INSERT INTO upload ( sample_id, target, status )
+         VALUES ( $self->{'_sampleId'}, 'CGHUB_FASTQ', 'zip_candidate' )
+         RETURNING upload_id";
+
+    my $insertSTH = $dbh->prepare($insertUploadSQL)
+        or die $dbh->errstr();
+    $insertSTH->execute()
+        or die $insertSTH->errstr();
+    $row_HR = $insertSTH->fetchrow_hashref();
+    if (! defined $row_HR) {
+        die $insertSTH->errstr();
+    }
+    $self->{'_zipUploadId'} = $row_HR->{'upload_id'};
+
+    # Done with transaction
+    $dbh->commit();
+
+    # Cleanup
+    $selectionSTH->finish();
+    $insertSTH->finish();
+
+    # Success
+    return 1;
 }
 
 =head2 = doMeta()
@@ -186,13 +307,18 @@ sub doUpload() {
   my $settingsHR = $obj->getAll();
   
 Retrieve a copy of the properties assoiciated with this object.
- 
 =cut
 
 sub getAll() {
     my $self = shift;
-    my %copy = %$self;
-    return \%copy;
+    my $copy;
+    for my $key (keys %$self) {
+        # Skip internal only (begin with "_") properties
+        if ($key !~ /^_/) {
+            $copy->{$key} = $self->{$key};
+        }
+    }
+    return $copy;
 }
 
 =head1 INTERNAL METHODS

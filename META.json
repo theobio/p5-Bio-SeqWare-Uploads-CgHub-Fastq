@@ -1,0 +1,47 @@
+{
+   "abstract" : "Support uploads of fastq files to cghub",
+   "author" : [
+      "Stuart R. Jefferys <srjefferys (at) gmail (dot) com>"
+   ],
+   "dynamic_config" : 1,
+   "generated_by" : "Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921",
+   "license" : [
+      "open_source"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "Bio-SeqWare-Uploads-CgHub-Fastq",
+   "prereqs" : {
+      "build" : {
+         "requires" : {
+            "Test::More" : "0"
+         }
+      },
+      "configure" : {
+         "requires" : {
+            "Module::Build" : "0"
+         }
+      },
+      "runtime" : {
+         "requires" : {
+            "Bio::SeqWare::Db::Connection" : "0.000002",
+            "perl" : "0.008"
+         }
+      }
+   },
+   "provides" : {
+      "Bio::SeqWare::Uploads::CgHub::Fastq" : {
+         "file" : "lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm",
+         "version" : "0.000001"
+      }
+   },
+   "release_status" : "stable",
+   "resources" : {
+      "license" : [
+         "http://opensource.org/licenses/gpl-license.php"
+      ]
+   },
+   "version" : "0.000001"
+}
