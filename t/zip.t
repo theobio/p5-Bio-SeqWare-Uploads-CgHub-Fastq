@@ -152,10 +152,9 @@ subtest( '_insertNewFileRecord()' => \&test_insertNewFileRecord);
 sub test__findNewLaneToZip {
     plan( tests => 12 );
 
-    # Set up DBI scripting for succesful query
-    my $sampleId = -19;
-    my $laneId = -12;
-    my $uploadId = -21;
+    my $sampleId    = -19;
+    my $laneId      = -12;
+    my $uploadId    = -21;
     my $metaDataDir = "/some/root/dir";
     my $uuidDir     = "B2F72FC3-2B9C-4448-B0C2-FE288C3C200C";
     
@@ -164,7 +163,7 @@ sub test__findNewLaneToZip {
         my @dbEventsOk = ({
             'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
             'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
-            'results'  => [
+            'results'     => [
                 [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir', 'cghub_analysis_id' ],
                 [ $laneId,    $sampleId,   $uploadId,   $metaDataDir,   $uuidDir           ],
             ],
@@ -176,42 +175,43 @@ sub test__findNewLaneToZip {
         my $objToModify = $CLASS->new( $OPT_HR );
         
         {
-            my $got = $objToModify->_findNewLaneToZip( $MOCK_DBH );
+            my $got  = $objToModify->_findNewLaneToZip( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, "Return 1 if found candidate to zip" );
         }
         {
-           my $got = $objToModify->{'_laneId'};
-           my $want = $laneId;
-           is( $got, $want, "Lane id stored in object" );
+            my $got  = $objToModify->{'_laneId'};
+            my $want = $laneId;
+            is( $got, $want, "Lane id stored in object" );
         }
         {
-           my $got = $objToModify->{'_sampleId'};
-           my $want = $sampleId;
-           is( $got, $want, "Sample id stored in object" );
+            my $got  = $objToModify->{'_sampleId'};
+            my $want = $sampleId;
+            is( $got, $want, "Sample id stored in object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadId'};
-           my $want = $uploadId;
-           is( $got, $want, "Mapsplice upload id stored in object" );
+            my $got  = $objToModify->{'_mapSpliceUploadId'};
+            my $want = $uploadId;
+            is( $got, $want, "Mapsplice upload id stored in object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadBaseDir'};
-           my $want = $metaDataDir;
-           is( $got, $want, "Mapsplice upload meta data dir is stored in object" );
+            my $got  = $objToModify->{'_mapSpliceUploadBaseDir'};
+            my $want = $metaDataDir;
+            is( $got, $want, "Mapsplice upload meta data dir is stored in object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadUuidDir'};
-           my $want = $uuidDir;
-           is( $got, $want, "Mapsplice upload UUID stored in object" );
+            my $got  = $objToModify->{'_mapSpliceUploadUuidDir'};
+            my $want = $uuidDir;
+            is( $got, $want, "Mapsplice upload UUID stored in object" );
         }
     }
 
     # Test when no lane to zip is found.
     {
         my @dbEventsNone = ({
-            'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-            'results'  => [[]],
+            'statement' => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+            'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+            'results'   => [[]],
         });
         $MOCK_DBH->{'mock_session'} =
                 DBD::Mock::Session->new( 'noLanesToZip', @dbEventsNone );
@@ -220,34 +220,34 @@ sub test__findNewLaneToZip {
         my $objToModify = $CLASS->new( $OPT_HR );
 
         {
-            my $got = $OBJ->_findNewLaneToZip( $MOCK_DBH );
+            my $got  = $OBJ->_findNewLaneToZip( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, "Return 1 if found no candidate to zip" );
         }
         {
-           my $got = $objToModify->{'_laneId'};
-           my $want = undef;
-           is( $got, $want, "Lane id not retrieved for object" );
+            my $got  = $objToModify->{'_laneId'};
+            my $want = undef;
+            is( $got, $want, "Lane id not retrieved for object" );
         }
         {
-           my $got = $objToModify->{'_sampleId'};
-           my $want = undef;
-           is( $got, $want, "Sample id not retrieved for object" );
+            my $got  = $objToModify->{'_sampleId'};
+            my $want = undef;
+            is( $got, $want, "Sample id not retrieved for object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadId'};
-           my $want = undef;
-           is( $got, $want, "Mapsplice upload id not retrieved for object" );
+            my $got  = $objToModify->{'_mapSpliceUploadId'};
+            my $want = undef;
+            is( $got, $want, "Mapsplice upload id not retrieved for object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadBaseDir'};
-           my $want = undef;
-           is( $got, $want, "Mapsplice upload meta data dir not retrieved for object" );
+            my $got  = $objToModify->{'_mapSpliceUploadBaseDir'};
+            my $want = undef;
+            is( $got, $want, "Mapsplice upload meta data dir not retrieved for object" );
         }
         {
-           my $got = $objToModify->{'_mapSpliceUploadUuidDir'};
-           my $want = undef;
-           is( $got, $want, "Mapsplice upload UUID not retrieved for object" );
+            my $got  = $objToModify->{'_mapSpliceUploadUuidDir'};
+            my $want = undef;
+            is( $got, $want, "Mapsplice upload UUID not retrieved for object" );
         }
     }
 }
@@ -257,7 +257,7 @@ sub test__insertNewZipUploadRecord {
 
     # Object will be modified, so need local
     my $sampleId = -19;
-    my $laneId = -12;
+    my $laneId   = -12;
     my $uploadId = -21;
 
     my $objToModify = $CLASS->new( $OPT_HR );
