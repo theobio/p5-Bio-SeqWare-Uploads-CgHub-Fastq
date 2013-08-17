@@ -9,7 +9,8 @@ use Bio::SeqWare::Config;   # Read the seqware config file
 use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
 use Data::Dumper;
 use File::Spec;
-use File::Path;
+use File::Path qw(make_path);
+use File::Copy qw(cp);
 
 =head1 NAME
 
@@ -425,6 +426,74 @@ sub _findNewLaneToZip {
     return 1;
 }
 
+=head2 _createUploadWorkspace
+
+    $self->_createUploadWorkspace( $dbh );
+
+=cut
+
+sub _createUploadWorkspace {
+
+    my $self = shift;
+    my $dbh = shift;
+
+    $self->{'_fastqUploadUuidDir'} = `uuidgen`;
+    chomp $self->{'_fastqUploadUuidDir'};
+    $self->{'_fastqUploadBaseDir'} = $self->{'fastqUploadDir'};
+
+    if (! -d $self->{'_fastqUploadBaseDir'}) {
+        $self->{'error'} = "no_fastq_base_dir";
+        croak "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
+    }
+
+    my $metaOutPath = File::Spec::catdir($self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'});
+    if (-d $metaOutPath) {
+        $self->{'error'} = 'fastq_upload_dir_exists';
+        croak "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
+    }
+
+    eval {
+        make_path($metaOutPath, { mode => 0775 });
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = "creating_meta_dir";
+        croak "Could not create the upload output dir: $metaOutPath\n$!\n$@\n";
+    }
+
+    my $sourceRunFilePath = File::Spec->catfile(
+        $self->{'_mapSpliceUploadBaseDir'}, $self->{'_mapSpliceUploadUuidDir'}, "run.xml"
+    );
+    my $targetRunFilePath = File::Spec->catfile(
+        $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'}, "run.xml"
+    );
+    eval {
+        cp( $sourceRunFilePath, $targetRunFilePath );
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = "copying_run_meta_files";
+        croak "Could not copy the run.xml meta file FROM: $sourceRunFilePath\nTO: $targetRunFilePath\n$!\n$error\n";
+    }
+
+    my $sourceExperimentFilePath = File::Spec->catfile(
+        $self->{'_mapSpliceUploadBaseDir'}, $self->{'_mapSpliceUploadUuidDir'}, "experiment.xml"
+    );
+    my $targetExperimentFilePath = File::Spec->catfile(
+        $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'}, "experiment.xml"
+    );
+    eval {
+        cp($sourceExperimentFilePath, $targetExperimentFilePath);
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = "copying_experiment_meta_files";
+        croak "Could not copy the experiment.xml meta file FROM: $sourceExperimentFilePath\nTO: $targetExperimentFilePath\n$!\n$error\n";
+    }
+
+    return 1;
+}
+
 =head2 _insertNewZipUploadRecord()
 
   $self->_insertNewZipUploadRecord( $dbh )
@@ -486,7 +555,8 @@ sub _insertNewZipUploadRecord {
         croak "Insert of new upload failed: $@";
     } 
     if (! defined $rowHR) {
-         carp "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
+        $self->{'error'} = 'fastq_upload_insert';
+        croak "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
     }
 
     $self->{'_fastqUploadId'} = $rowHR->{'upload_id'};
@@ -502,40 +572,6 @@ sub _insertNewZipUploadRecord {
     return 1;
 }
 
-=head2 _createUploadWorkspace
-
-    $self->_createUploadWorkspace( $dbh );
-
-=cut
-
-sub _createUploadWorkspace {
-
-    my $self = shift;
-    my $dbh = shift;
-
-    $self->{'_fastqUploadUuidDir'} = `uuidgen`;
-    chomp $self->{'_fastqUploadUuidDir'};
-    $self->{'_fastqUploadBaseDir'} = $self->{'fastqUploadDir'};
-
-    if (! -d $self->{'_fastqUploadBaseDir'}) {
-        $self->{'error'} = "no_fastq_base_dir";
-        carp "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
-    }
-
-    my $metaOutPath = File::Spec::catdir($self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'});
-    if (-d $metaOutPath) {
-        $self->{'error'} = 'fastq_upload_dir_exists';
-        carp "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
-    }
-
-    my $ok = mkpath($metaOutPath, { mode => 0775 });
-    if (! $ok) {
-        $self->{'error'} = "creating_meta_dir";
-        carp "Could not create the upload output dir: $metaOutPath";
-    }
-
-    return 1;
-}
 
 =head2 _fastqFilesSqlSubSelect( ... )
 
@@ -985,7 +1021,7 @@ sub _zip() {
         my $ok = mkpath($zipFileDir, { mode => 0775 });
         if (! $ok) {
             $self->{'error'} = "creating_data_output_dir";
-            carp "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
+            croak "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
         }
     }
     my $zipFile = $self->{'_flowcell'} . "_" . ($self->{'_laneIndex'} + 1);
@@ -999,12 +1035,12 @@ sub _zip() {
              my $ok = unlink $zipFile;
              if (! $ok) {
                  $self->{'error'} = "removing_prior_file";
-                 carp "Error deleting previous file: $zipFile - $!\n";
+                 croak "Error deleting previous file: $zipFile - $!\n";
              }
          }
          else{
              $self->{'error'} = "prior_zip_file_exists";
-             carp "Error: not rerunning and have preexisting zip file: $zipFile\n";
+             croak "Error: not rerunning and have preexisting zip file: $zipFile\n";
          }
     }
 
@@ -1028,7 +1064,7 @@ sub _zip() {
     my $ok = system( $command );
     if ( $ok != 0 || ! (-f $zipFile) || (-s $zipFile) < (( $self->{'minFastqSize'} / 100 ) + 1 )) {
         $self->{'error'} = "executing_tar_gzip";
-        carp "Failed executing the zip command [$command] with error: $ok\n";
+        croak "Failed executing the zip command [$command] with error: $ok\n";
     }
     $self->{'_zipFileName'} = $zipFile;
 
@@ -1038,7 +1074,7 @@ sub _zip() {
     }
     if (! defined $md5result) {
         $self->{'error'} = "zipfile_md5_generation";
-        carp "Generation of zip file md5 failed.";
+        croak "Generation of zip file md5 failed.";
     }
     $self->{'_zipMd5Sum'} = $md5result;
 

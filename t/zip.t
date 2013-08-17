@@ -15,7 +15,7 @@ use Bio::SeqWare::Config; # Access SeqWare settings file as options
 use Bio::SeqWare::Db::Connection;
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
-use Test::More 'tests' => 8;   # Run this many Test::More compliant subtests.
+use Test::More 'tests' => 9;   # Run this many Test::More compliant subtests.
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 
@@ -133,6 +133,7 @@ my $MOCK_DBH = DBI->connect(
 #
 
 subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
+subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
 subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
 subtest( '_getLaneToZip()'             => \&test__getLaneToZip );
 subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
@@ -250,6 +251,12 @@ sub test__findNewLaneToZip {
             is( $got, $want, "Mapsplice upload UUID not retrieved for object" );
         }
     }
+}
+
+sub test__createUploadWorkspace {
+    plan( tests => 1 );
+
+    fail( "_createUploadWorkspace tests not implemented" );
 }
 
 sub test__insertNewZipUploadRecord {
