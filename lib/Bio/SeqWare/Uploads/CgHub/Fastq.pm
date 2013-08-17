@@ -1,12 +1,15 @@
 package Bio::SeqWare::Uploads::CgHub::Fastq;
 
-use 5.008;         # No reason, just being specific. Update your perl.
+use 5.014;         # Eval $@ safe to use.
 use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
+$Carp::Verbose = 1;
 use Bio::SeqWare::Config;   # Read the seqware config file
 use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
 use Data::Dumper;
+use File::Spec;
+use File::Path;
 
 =head1 NAME
 
@@ -35,8 +38,18 @@ our $VERSION = '0.000001';   # PRE-RELEASE
 Supports the upload of zipped fastq file sets for samples to cghub. Includes
 db interactions, zip command line convienience functions, and meta-data
 generation control. The meta-data uploads are a hack on top of a current
-implementation, just generates the current version, then after-the-fact
-modifies it to do a fastq upload.
+implementation.
+
+=head2 Conventions
+
+Errors are reported via setting $self->{'error} and returning undef.
+
+Any run mode can be repeated; they should be self-protecting by persisting
+approriate text to the upload record status as <runMode>_<running|completed|failed_<message>>.
+
+Each runmode should support the --rerun flag, eventually. That probably
+requires separating the selection and the processing logic, with --rerun only
+supported by the processing logic.
 
 =cut
 
@@ -61,10 +74,19 @@ sub new {
     }
     my %copy = %$param;
     my $self = {
+        'error'   => undef,
+        'myName' => 'upload-cghub-fastq_0.0.1',
+
+        '_laneId'    => undef,
+        '_sampleId'  => undef,
+        '_uploadId'  => undef,
+        '_fastqs'    => undef,
+        '_zipFile'   => undef,
+        '_zipMd5Sum' => undef,
+        '_zipFileId' => undef,
+        '_fastqProcessingId'      => undef,
+        '_fastqWorkflowAccession' => undef,
         %copy,
-        '_laneId' => undef,
-        '_sampleId'    => undef,
-        '_zipUploadId' => undef,
     };
     bless $self, $class;
     return $self;
@@ -82,114 +104,333 @@ sub new {
 
 This is the "main" program loop, associated with running C<upload-cghub-fastq>
 This method can be called with or without a parameter. If called without a
-parameter, it uses the value of the instances runMode property, all allowed
-values for that parameter are supported (case insenistive "ZIP", "META",
-"VALIDATE", "UPLOAD", "ALL"). Each parameter causes the associated "do..."
+parameter, it uses the value of the instance's 'runMode' property. All allowed
+values for that parameter are supported here: case insenistive "ZIP", "META",
+"VALIDATE", "UPLOAD", and "ALL". Each parameter causes the associated "do..."
 method to be invoked, although "ALL"" causes each of the 4 do... methods to be
-invoked in order.
+invoked in order as above.
 
-This method will either succeed and return 1, or will trigger a fatal exit.
+This method will should either succeed and return 1 or set $self->{'error'}
+and returns undef.
 
 =cut
 
 sub run {
     my $self = shift;
     my $runMode = shift;
+
+    # Validate runMode parameter
     if (! defined $runMode) {
         $runMode = $self->{'runMode'};
     }
     if (! defined $runMode || ref $runMode ) {
-        croak("Can't run unless specify a run mode.");
+        $self->{'error'} = "bad_run_mode";
+        croak "Can't run unless specify runMode.";
+    }
+    $runMode = uc $runMode;
+
+    # Connect to database. New connection for each step in combined runMode.
+    my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
+    if (! defined $connectionBuilder) {
+        $self->{'error'} = "constructing_connection";
+        croak "Failed to create Bio::SeqWare::Db::Connection.\n";
+    }
+
+    my $dbh = $connectionBuilder->getConnection(
+         {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1}
+    );
+    if (! $dbh) {
+        $self->{'error'} = "db_connection";
+        croak "Failed to connect to database. $!\n";
+    }
+
+    # Run as selected.
+    eval {
+        if ( $runMode eq "ALL" ) {
+            $self->run('ZIP');
+            $self->run('META');
+            $self->run('VALIDATE');
+            $self->run('UPLOAD');
+        }
+        elsif ($runMode eq "ZIP" ) {
+            $self->doZip();
+        }
+        elsif ($runMode eq "META" ) {
+            $self->doMeta();
+        }
+        elsif ($runMode eq "VALIDATE" ) {
+            $self->doValidate();
+        }
+        elsif ($runMode eq "UPLOAD" ) {
+            $self->doUpload();
+        }
+        else {
+            $self->{'error'} = "unknown_run_mode";
+            croak "Illegal runMode \"$runMode\" specified.\n";
+        }
+    };
+
+    if ($@) {
+        my $error = $@;
+        if ( $self->{'_fastqUploadId'}) {
+            $self->_updateUploadStatus( $dbh, "zip_failed_" . $self->{'error'})
+                or $error .= " ALSO: Failed to update UPLOAD: $self->{'fastqUploadId'} with ERROR: $self->{'error'}";
+        }
+        eval {
+            $dbh->disconnect();
+        };
+        if ($@) {
+            $error .= " ALSO: error disconnecting from database: $@\n";
+        }
+        croak $error;
     }
     else {
-       $runMode = uc $runMode;
+        $dbh->disconnect();
+        if ($@) {
+            my $error .= "$@";
+            warn "Problem encountered disconnecting from the database - Likely ok: $error\n";
+        }
+        return 1;
     }
-    if ( $runMode eq "ALL" ) {
-        $self->run('ZIP');
-        $self->run('META');
-        $self->run('VALIDATE');
-        $self->run('UPLOAD');
-    }
-    elsif ($runMode eq "ZIP") {
-        $self->doZip();
-    }
-    elsif ($runMode eq "META") {
-        $self->doMeta();
-    }
-    elsif ($runMode eq "VALIDATE") {
-        $self->doValidate();
-    }
-    elsif ($runMode eq "UPLOAD") {
-        $self->doUpload();
-    }
-    else {
-        croak("Illegal runMode of \"$runMode\" specified.");
-    }
-    return 1;
 }
 
 =head2 = doZip()
 
- $obj->doZip();
+ $obj->doZip( $dbh );
 
-Performs three steps:
+Initially identifies a lane for needing fastqs uploaded and tags it as running.
+Then it creates the basic upload directory, retrieves upload meta data files
+from prior runs, identifies the fastq files from that lane to uplaod, zips them,
+makes appropriate entires in the seqware database, and then indicates when
+done.
+
+Either returns 1 to indicated completed successfully, or undef to indicate
+failure. Check $self->{'error'} for details.
+
+The status of this lanes upload is visible externally through the upload
+record with target = CGHUB_FASTQ and status 'zip-running', 'zip-completed', or
+'zip_failed_<error_message>'. Possible error states the upload record could be
+set to are:
+
+'zip_failed_no_wfID', 'zip_failed_missing_fastq' 'zip_failed_tiny_fastq',
+'zip_failed_fastq_md5', 'zip_failed_gzip_failed', 'zip_failed_unknown'
+'zipval_error_missing_zip', 'zipval_error_tiny_zip', 'zipval_error_md5',
+'zipval_error_file_insert' 'zipval_error_unknown'
 
 =over
 
 =item 1
 
-Identify a potential lane to zip and insert a new upload record, status =
-'zip_candidate' and set internal _zipUploadId value. If none found, return 0.
-To be tagged there must be an existing CGHUB upload record with an
-external_status = 'live' that is linked to a file record which shows up in
-vw_files, and that lane may not be linked to any existing CGHUB_FASTQ record 
+Identify a lane to zip. If none found, exits, else inserts a new upload record
+with C< target = 'CGHUB' and status = 'zip_running' >. The is done as a
+transaction to allow parallel running. For a lane to be selected, it must have
+an existing upload record with C< target = 'CGHUB' and external_status = 'live' >.
+That upload record is linked through a C< file > table record via the C< vw_files >
+view to obtain the lane. If there are any upload records associated with the
+selected lane that have C< target = CGHUB_FASTQ >, then that lane will not
+be selected.
 
 =item 2
 
-For the lane zipping, find corresponding file/files on system and zip them. If
-zip fails update upload record status = 'zip_error_no_wfID', 'zip_error_missing_fastq'
-'zip_error_tiny_fastq', 'zip_error_fastq_md5', 'zip_error_zip_failed',
-'zip_error_unknown', return undef.
+Once selected, a new (uuidgen named) directory for this upload is created in
+the instance's 'uploadDataRoot' directory. The previously generated
+C<experiment.xml> and C<run.xml> are copied there. The analysis.xml is not
+copied as it will be recreated by the META step. The upload record is
+modified to record this new information, or to indicate failure if it did not
+work.
+
+B<NOTE>: Using copies of original xml may not work for older runs as they may
+have been consitent only with prior versions of the uplaod schema.
 
 =item 3
 
-When done, validate output, calculate md5 sum, insert new file record
-(that points to workflow_run that generated fastq), and update upload
-status to zip_completed. If fails, update upload status=
-'zipval_error_missing_zip', 'zipval_error_tiny_zip', 'zipval_error_md5',
-'zipval_error_file_insert' 'zipval_error_unknown' and return undef.
+The biggest problem is finding the fastq file or files for this lane. Since
+there is no way to directly identify the input fastq files used by the
+Mapsplice run, the assumption is made that The file/s generated by
+any completed FinalizeCasava run for this lane, if present, are used. IF not
+present then the file/s generated by any completed srf2fastq run is used. If
+neither are present, then an error is signalled and the upload record is updated.
+
+=item 4
+
+The fastq files identified are then validated on the system, and then tar/gzipped
+to the spedified OutputDataRoot, in a subdirectory named for this program, named
+like flowcell_lane_barcode.fastq.tar.zip. If errors occur, updates upload
+status.
+
+=item 5
+
+When done, validate output, calculate md5 sum, insert a new file record and
+new processing_files records (linking the new file and the processing_ids for
+the  input fastq). Updates upload record to zip_completed to indicate done.
 
 =back
-
-Database changes are done as transaction to allow parallel runs of this step.
-
-Upload records are inserted with target = 'CGHUB-zip', external-status of "",
-and status = "zip-started"
-
-File records are inserted with links via workflow_run_files and 
 
 =cut
 
 
 sub doZip {
     my $self = shift;
-    my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
-    my $dbh = $connectionBuilder->getConnection( {'RaiseError' => 0, 'AutoCommit' => 1} );
+    my $dbh = shift;
 
-    $self->_tagLaneforZipping();
-    $self->_startZipping();
-
-    $dbh->disconnect();
+    eval {
+        $self->_tagLaneToUpload($dbh, "zip_running");
+        $self->_getFilestoZip( $dbh );
+        $self->_zip( $dbh );
+        $self->_insertNewFile( $dbh );
+        $self->_updateUploadStatus( $dbh, "zip_completed");
+    };
+    if ($@) {
+        my $error = $@;
+        croak $error;
+    }
 
     return 1;
 }
 
-=head2 _tagLaneforZipping()
+=head _selectLaneToUpload()
+
+=cut
+
+sub _tagLaneToUpload {
+    my $self = shift;
+    my $dbh = shift;
+    my $newUploadStatus = shift;
+
+    eval {
+        # Transaction to ensures 'find' and 'tag as found' occur in one step,
+        # allowing for parallel running.
+        $dbh->begin_work();
+
+        $self->_findNewLaneToZip( $dbh );
+        $self->_createUploadWorkspace( $dbh );
+        $self->_insertNewZipUploadRecord( $dbh, $newUploadStatus);
+        $dbh->commit()
+    };
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= " ALSO: error rolling back tagLaneToUpload transaction: $@\n";
+        }
+        croak $error;
+    }
+
+    return 1;
+
+}
+
+=head2 _findNewLaneToZip()
+
+Identifies a lane that needs its data uploaded to CgHub. To qualify for
+uploading, a lane must have had a succesful bam file uploaded, and not have had
+a fastq upload (succesful, unsuccesful, or in progress). A lane is uniquely
+identified by its db lane.lane_id.
+
+If a bam file was uploaded succesfully, an upload (u) record will exist with
+fields C< u.lane_id == lane.lane_id >, C< u.target == "CGHUB" > and
+C< u.external_status == 'live' >. This record also has a field C< u.sample_id >
+which holds the sample.sample_id for the lane it represents.
+
+IF a lane has ever been considered for fastq-upload, it will have an upload
+record with fields C< u.lane_id == lane.lane_id > and C< u.target == "CGHUB" >.
+The status of this record indicates what state the processing of this is in,
+but don't care. Whatever state it is in, don't pick it up here.
+
+If verbose is set, this will echo the SQL query used and the results obtained.
+
+To prevent collisions with parallel runs, this query should be combined in a
+transaction with and update to insert an upload record that tags a lane as
+being processed for fastq upload (i.e. with upload.target = CGHUB_FASTQ).
+
+=cut
+
+sub _findNewLaneToZip {
+    my $self = shift;
+    my $dbh = shift;
+
+    # Setup SQL
+    my $sqlTargetForMapspliceUpload = 'CGHUB';
+    my $sqlExternalStatusForSuccesfulMapspliceUpload = 'live';
+    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
+
+    my $selectionSQL =
+       "SELECT vwf.lane_id, u.sample_id, u.upload_id, u.metadata_dir, u.cghub_analysis_id
+        FROM vw_files AS vwf, upload_file AS uf, upload AS u
+        WHERE vwf.file_id       = uf.file_id
+          AND uf.upload_id      = u.upload_id
+          AND u.target          = '$sqlTargetForMapspliceUpload'
+          AND u.external_status = '$sqlExternalStatusForSuccesfulMapspliceUpload'
+          AND vwf.sample_id NOT IN (
+              SELECT u.sample_id
+              FROM upload AS u
+              WHERE u.target      = '$sqlTargetForFastqUpload'
+          ) order by vwf.lane_id DESC limit 1";
+
+    if ($self->{'verbose'}) {
+        print ("SQL to find a lane for zipping:\n$selectionSQL\n");
+    }
+
+    # Execute SQL
+    my $rowHR;
+    eval {
+        my $selectionSTH = $dbh->prepare( $selectionSQL );
+        $selectionSTH->execute();
+        $rowHR = $selectionSTH->fetchrow_hashref();
+        $selectionSTH->finish();
+    };
+    if ($@) {
+        $self->{'error'} = "lane_lookup";
+        croak "Lookup of new lane failed: $@";
+    }
+
+    if (! defined $rowHR) {
+        return 1;  # NORMAL RETURN - Can't find candidate lanes for zipping.
+    }
+
+    # Looks like we got data, so save it off.
+    $self->{'_laneId'}                 = $rowHR->{'lane_id'};
+    $self->{'_sampleId'}               = $rowHR->{'sample_id'};
+    $self->{'_mapSpliceUploadId'}      = $rowHR->{'upload_id'};
+    $self->{'_mapspliceUploadBaseDir'} = $rowHR->{'metadata_dir'};
+    $self->{'_mapspliceUploadUuidDir'} = $rowHR->{'cghub_analysis_id'};
+    if ($self->{'verbose'}) {
+        print( "Found zip candidate"
+            . ". " . "LANE: "                       . $self->{'_laneId'}
+            . "; " . "SAMPLE: "                     . $self->{'_sampleId'}
+            . "; " . "MAPSPLICE UPLOAD_ID: "        . $self->{'_mapSpliceUploadId'}
+            . "; " . "MAPSPLICE UPLOAD_BASE_DIR: "  . $self->{'_mapspliceUploadBaseDir'}
+            . "; " . "MAPSPLICE UPLOAD_UUID_DIR: "  . $self->{'_mapspliceUploadUuidDir'}
+            . "\n");
+    }
+
+    unless (   $self->{'_laneId'}
+            && $self->{'_sampleId'}
+            && $self->{'_mapSpliceUploadId'}
+            && $self->{'_mapspliceUploadBaseDir'}
+            && $self->{'_mapspliceUploadUuidDir'}
+    ) {
+        $self->{'error'} = "lane_lookup_data";
+        croak "Failed to retrieve lane, sample, and/or mapsplice upload data.";
+    }
+
+    return 1;
+}
+
+=head2 _insertNewZipUploadRecord()
+
+  $self->_insertNewZipUploadRecord( $dbh )
+
+
+Get sample to handle and mark as being handled using a transaction, so zipping
+can run in parallel.
 
 Internal method that takes no parmaeters. It returns 0 if no records exist to
 update, 1 if successeds. Dies on a bunch of database errors.
 
-Sets private data fields _zipUploadId, _laneId, _sampleId
+Sets private data fields _uploadId, _laneId, _sampleId
 
 Inserts a new upload table record for CGHUB_FASTQ, for the same sample
 as an existing upload record for CGHUB, when the CGHUB record is for a live
@@ -197,83 +438,631 @@ mapsplice upload and no CGHUB_FASTQ exists for that sample.
 
 =cut
 
-sub _tagLaneforZipping {
+sub _insertNewZipUploadRecord {
     my $self = shift;
     my $dbh = shift;
+    my $newUploadStatus = shift;
 
-    # First half of transaction, get lane id for possible update.
+    # Setup SQL
+    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
-    my $selectionSQL =
-        "-- select lanes with bam files uploaded to cghub.
-        SELECT vwf.lane_id, u.sample_id
-        FROM vw_files AS vwf, upload_file AS uf, upload AS u
-        WHERE vwf.file_id       = uf.file_id
-          AND uf.upload_id      = u.upload_id
-          AND u.target          = 'CGHUB'
-          AND u.external_status = 'live'
-          AND vwf.sample_id NOT IN (
-              -- Sample not already processed.
-              SELECT u.sample_id
-              FROM upload AS u
-              WHERE u.target      = 'CGHUB_FASTQ'
-          ) order by vwf.lane_id DESC limit 1";
-
-    $dbh->begin_work()
-            or die $dbh->errstr();  # Autocommit should be on.
-    my $selectionSTH = $dbh->prepare($selectionSQL)
-            or die $dbh->errstr();
-    $selectionSTH->execute()
-            or die $selectionSTH->errstr();
-    my $row_HR = $selectionSTH->fetchrow_hashref();
-    if (! defined $row_HR) {
-        if ($selectionSTH->err()) {
-            die $selectionSTH->errstr();
-        }
-        else {
-            return 0;  # RETURN - nothing to update.
-        }
-    }
-    $self->{'_laneId'} = $row_HR->{'lane_id'};
-    $self->{'_sampleId'} = $row_HR->{'sample_id'};
-
-    # Second half of transaction
-
-    my $insertUploadSQL = 
-        "--Inserting a new upload table record and catching the new id.
-         --Using postgres-specific extension to get id of inserted record.
-         INSERT INTO upload ( sample_id, target, status )
-         VALUES ( $self->{'_sampleId'}, 'CGHUB_FASTQ', 'zip_candidate' )
+    my $insertUploadSQL =
+        "INSERT INTO upload ( sample_id, target, status, metadata_dir, cghub_analysis_id )
+         VALUES ( ?, '$sqlTargetForFastqUpload', ?, ?, ? )
          RETURNING upload_id";
 
-    my $insertSTH = $dbh->prepare($insertUploadSQL)
-        or die $dbh->errstr();
-    $insertSTH->execute()
-        or die $insertSTH->errstr();
-    $row_HR = $insertSTH->fetchrow_hashref();
-    if (! defined $row_HR) {
-        die $insertSTH->errstr();
+    if ($self->{'verbose'}) {
+        print ("SQL to insert new upload record for zip:\$insertUploadSQL\n");
     }
-    $self->{'_zipUploadId'} = $row_HR->{'upload_id'};
 
-    # Done with transaction
-    $dbh->commit();
+    my $targetDir = File::Spec::catdir(
+        $self->{'_fastqUploadBaseDir'},
+        $self->{'_fastqUploadUuidDir'}
+    );
+    if (! -d  $targetDir) {
+        $self->{'error'} = "fastq_upload_dir_missing";
+        croak "Can't find the fastq upload dir: $targetDir\n";
+    }
+    my $rowHR;
+    eval {
+        my $insertSTH = $dbh->prepare($insertUploadSQL);
+        $insertSTH->execute(
+            $self->{'_sampleId'},
+            $newUploadStatus,
+            $self->{'_fastqUploadBaseDir'},
+            $self->{'_fastqUploadUuidDir'}
+        );
+        $rowHR = $insertSTH->fetchrow_hashref();
+        $insertSTH->finish();
+    };
+    if ($@) {
+        $self->{'error'} = 'fastq_upload_insert';
+        croak "Insert of new upload failed: $@";
+    } 
+    if (! defined $rowHR) {
+         die "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
+    }
 
-    # Cleanup
-    $selectionSTH->finish();
-    $insertSTH->finish();
+    $self->{'_fastqUploadId'} = $rowHR->{'upload_id'};
 
-    # Success
+    if ($self->{'verbose'}) {
+        print( "\nInserted fastq UPLOAD: $self->{'_fastqUploadId'}\n");
+    }
+
+    if (! $self->{'_fastqUploadId'}) {
+        $self->{'error'} = 'fastq_upload_data';
+    }
+
     return 1;
 }
 
-=head2 = doMeta()
+sub _createUploadWorkspace {
+
+    my $self = shift;
+    my $dbh = shift;
+
+    $self->{'_fastqUploadUuidDir'} = `uuidgen`;
+    chomp $self->{'_fastqUploadUuidDir'};
+    $self->{'_fastqUploadBaseDir'} = $self->{'fastqUploadDir'};
+
+    if (! -d $self->{'_fastqUploadBaseDir'}) {
+        $self->{'error'} = "no_fastq_base_dir";
+        die "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
+    }
+
+    my $metaOutPath = File::Spec::catdir($self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'});
+    if (-d $metaOutPath) {
+        $self->{'error'} = 'fastq_upload_dir_exists';
+        die "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
+    }
+
+    my $ok = mkpath($metaOutPath, { mode => 0775 });
+    if (! $ok) {
+        $self->{'error'} = "creating_meta_dir";
+        die "Could not create the upload output dir: $metaOutPath";
+    }
+
+    return 1;
+}
+
+=head2 _fastqFilesSqlSubSelect( ... )
+
+    my someFileSQL = "... AND file.file_id EXISTS ("
+       . _fastqFilesSqlSubSelect( $wf_accession ) . " )";
+
+
+Given a workflow accession, returns a string that is an SQL subselect. When
+executed, this subselect will return a list of file.fastq_id for fastq files
+from the given workflow id.
+
+This is required because different workflows need different amounts of
+information to identify the fastq files relative to other files generated
+from the same workflow. Using this allows separating the (fixed) SQL needed
+to select the sample and the (varying) code to select the fastq files for that
+sample.
+
+If the wf_accession is not known, will return undef. The wf_accession may
+be provided by an internal object property '_fastqWorkflowAccession' 
+
+For example:
+
+    my $sqlSubSelect = _fastqFilesSqlSubSelect( 613863 );
+    print ($sqlSubSelect);
+
+    SELECT file.file_id FROM file WHERE file.workflowAccession = 613863
+        AND file.algorithm = 'FinalizeCasava'
+
+    my $SQL = "SELECT f.path, f.md5Sum"
+            . " FROM file f"
+            . " WHERE sample_id = 3245"
+            . " AND f.file IN ( " . _fastqFilesSqlSubSelect( 613863 ) . " )"
+
+=cut
+
+sub _fastqFilesSqlSubSelect {
+    my $self = shift;
+    my $fastqWorkflowAccession = shift;
+    if (! defined $fastqWorkflowAccession ) {
+        $fastqWorkflowAccession = $self->{'_workflowAccession'};
+    }
+    if (! defined $fastqWorkflowAccession ) {
+        $self->{'error'} = 'no_fastq_wf_accession';
+        croak("Fastq workflow accession not specified and not set internally.");
+    }
+
+    my $subSelect;
+    if ( $fastqWorkflowAccession == 613863 ) {
+        $subSelect = "SELECT vw_files.file_id FROM vw_files"
+                  . " WHERE vw_files.workflow_accession = 613863"
+                  . " AND vw_files.algorithm = 'FinalizeCasava'"
+    }
+    elsif ( $fastqWorkflowAccession == 851553 ) {
+        $subSelect = "SELECT vw_files.file_id FROM vw_files"
+                  . " WHERE vw_files.workflow_accession = 851553"
+                  . " AND vw_files.algorithm = 'srf2fastq'"
+    }
+    return $subSelect;
+}
+
+=head2 _getFilesToZip()
+
+    my $fileSelectorHR = { 'workflowAccession' => 613863,
+                           'algorithm'         => 'FinalizeCasava' };
+    $self->_getFilesToZip( $dbh, $fileSelectorHR );
+
+File Selector prameter may not be sufficient for all needs, so currently only
+implemented for sure for FinalizeCasava. Returns 1 if success, 0 if can not
+find the specified record. If can not find the specified record, updates the
+relevant upload record to status = "error_zip_no-db-fastq-files". If does find
+the relevant 1 or 2 files, sets $self->{_fastqs}->[0] to
+{ filePath => ???, md5sum => ???}, and if there are 2 files, also sets [1].
+
+Sets $self->{'_workflowRunId'}, $self->{'_flowcell'}, $self->{'_laneIndex'},
+and $self->{'_barcode'} and checks to see if theses are the same for both
+fastqs. If not, sets the upload record status = "error_zip_mismatched_fastqs"
+and returns 0.
+
+Dies for a lot of database errors.
+
+=cut
+
+sub _getFilesToZip {
+    my $self = shift;
+    my $dbh = shift;
+    $self->{'step'} = "getFastqFiles";
+
+    my $workflowAccession = shift;
+    if (defined $workflowAccession) {
+        $self->{'_workflowAccession'} = $workflowAccession;
+    }
+    else {
+        $self->{'_workflowAccession'} = 613863;
+    }
+
+    my $sampleSelectSQL =
+    "SELECT vwf.file_path, vwf.md5sum,     vwf.workflow_run_id,
+            vwf.flowcell,  vwf.lane_index, vwf.barcode, pf.processing_id
+     FROM vw_files vwf, processing_files pf
+     WHERE vwf.file_id = pf.file_id
+       AND vwf.status = 'completed'
+       AND vwf.sample_id = ?
+       AND vwf.lane_id = ?";
+    my $fileSelectSQL = $sampleSelectSQL
+                      . " AND vwf.file_id IN ( " . $self->_fastqFilesSqlSubSelect() . " )";
+
+    if ($self->{'verbose'}) {
+        print ("SQL to look for fastq files (from FinalizeCasava): \$fileSelectSQL\n");
+    }
+
+    my $row1HR;
+    my $row2HR;
+    eval {
+        my $selectionSTH = $dbh->prepare( $fileSelectSQL );
+        $selectionSTH->execute( $self->{'_sampleId'}, $self->{'_laneId'} );
+        $row1HR = $selectionSTH->fetchrow_hashref();
+
+        # If no 613863 fastq exists, there may be a 851553 fastq, but only check
+        # If no workflow accession was explicitly specified as a sub param.
+        if (! defined $row1HR && ! defined $workflowAccession ) {
+            $selectionSTH->finish();
+            $self->{'_workflowAccession'} = 851553;
+            $fileSelectSQL = $sampleSelectSQL
+                           . " AND vwf.file_id IN ( " . $self->_fastqFilesSqlSubSelect() . " )";
+            if ($self->{'verbose'}) {
+                print ("SQL to look for fastq files (from srf2fastq): \$fileSelectSQL\n");
+            }
+
+            $selectionSTH = $dbh->prepare($fileSelectSQL);
+            $selectionSTH->execute( $self->{'_sampleId'}, $self->{'_laneId'} );
+            $row1HR = $selectionSTH->fetchrow_hashref();    # row 1 as previous failed for any.
+
+            # Checked for all source fastq files. IF none exist, we are done
+            if (! defined $row1HR) {
+                $self->{'_workflowAccession'} = undef;
+                $self->{'error'} = 'no_fastq_files';
+                croak "Can't find any fastq files\n";
+            }
+        }
+
+        # Found a first row already, or exited on error. Now look for second row
+        $row2HR = $selectionSTH->fetchrow_hashref();
+        $selectionSTH->finish();
+    };
+
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+              $self->{'error'} = 'fastq_files_lookup';
+        }
+        croak "Error looking up fastq files: $error";
+    }
+
+    # Found at least one fastq file - record it
+    $self->{'_workflowRunId'}                 = $row1HR->{'workflow_run_id'};
+    $self->{'_flowcell'}                      = $row1HR->{'flowcell'};
+    $self->{'_laneIndex'}                     = $row1HR->{'lane_index'};
+    $self->{'_barcode'}                       = $row1HR->{'barcode'};
+    $self->{'_fastqs'}->[0]->{'filePath'}     = $row1HR->{'file_path'};
+    $self->{'_fastqs'}->[0]->{'md5sum'}       = $row1HR->{'md5sum'};
+    $self->{'_fastqs'}->[0]->{'processingId'} = $row1HR->{'processing_id'};
+
+    if ($self->{'verbose'}) {
+        print( "\nFound fastq1 - WORKFLOW_RUN_ID: $self->{'_workflowRunId'}"
+               . " FLOWCELL: $self->{'_flowcell'}"
+               . " LANE_INDEX: $self->{'_laneIndex'}"
+               . ($self->{'_barcode'}) ? " BARCODE: $self->{'_barcode'}" : ""
+               . " FILE_PATH: $self->{'_fastqs'}->[0]->{'filePath'}"
+               . " MD5: $self->{'_fastqs'}->[0]->{'md5sum'}"
+               . " PROCESSING_ID: $self->{'_fastqs'}->[0]->{'processingId'}"
+               . "\n"
+        );
+    }
+
+    if (! $self->{'_workflowRunId'}            && $self->{'_flowcell'}
+        && $self->{'_laneIndex'}               && $self->{'_fastqs'}->[0]->{'filePath'}
+        && $self->{'_fastqs'}->[0]->{'md5sum'} && $self->{'_fastqs'}->[0]->{'processingId'}
+    ) {
+        $self->{'error'} = 'fastq_file_1_data';
+        croak "Missing data for fastq file 1."
+    }
+
+    # Second fastq may exist
+    if (defined $row2HR) {
+        $self->{'_fastqs'}->[1]->{'filePath'}     = $row2HR->{'file_path'};
+        $self->{'_fastqs'}->[1]->{'md5sum'}       = $row2HR->{'md5sum'};
+        $self->{'_fastqs'}->[1]->{'processingId'} = $row2HR->{'processing_id'};
+
+        if ($self->{'verbose'}) {
+            print( "\nFound fastq2 - WORKFLOW_RUN_ID: $row2HR->{'workflow_run_id'}"
+                   . " FLOWCELL: $row2HR->{'flowcell'}"
+                   . " LANE_INDEX: $row2HR->{'lane_index'}"
+                   . ($row2HR->{'barcode'}) ? " BARCODE: $row2HR->{'barcode'}" : ""
+                   . " FILE_PATH: $self->{'_fastqs'}->[1]->{'filePath'}"
+                   . " MD5: $self->{'_fastqs'}->[1]->{'md5sum'}"
+                   . " PROCESSING_ID: $self->{'_fastqs'}->[1]->{'processingId'}"
+                   . "\n"
+            );
+        }
+
+        unless (   $row2HR->{'_workflowRunId'}          && $row2HR->{'_flowcell'}
+                && $row2HR->{'_laneIndex'}              && $self->{'_fastqs'}->[1]->{'filePath'}
+                && $self->{'_fastqs'}->[1]->{'md5sum'}  && $self->{'_fastqs'}->[1]->{'processingId'}
+        ) {
+            $self->{'error'} = 'fastq_file_2_data';
+            croak "Missing data for fastq file 2."
+        }
+
+        # If find second fastq file, make sure all info for both match
+        my ($vol, $fq1Dir, $file1) = File::Spec->splitpath(
+             $self->{'_fastqs'}->[0]->{'filePath'}
+        );
+        my ($vol1, $fq2Dir, $file2) = File::Spec->splitpath(
+             $self->{'_fastqs'}->[1]->{'filePath'}
+        );
+
+        if (   $row2HR->{'workflow_run_id'} != $self->{'_workflowRunId'}
+            || $row2HR->{'flowcell'}        ne $self->{'_flowcell'}
+            || $row2HR->{'lane_index'}      != $self->{'_laneIndex'}
+            || (  defined $row2HR->{'barcode'} && ! defined $self->{'_barcode'})
+            || (! defined $row2HR->{'barcode'} &&   defined $self->{'_barcode'})
+            || (  defined $row2HR->{'barcode'} &&   defined $self->{'_barcode'}
+                  && $row2HR->{'barcode'} ne $self->{'_barcode'} )
+            || $fq1Dir ne $fq2Dir
+        ) {
+            $self->{'error'} = 'fastq-data-mismatch';
+            croak "The two fastq file records don't match.";
+        }
+    }
+
+    return 1;
+}
+
+=head2 _updateUploadStatus( ... )
+
+    $self->_updateUploadStatus( $dbh, $newStatus );
+
+Set the status of the internally referenced upload record to the specified
+$newStatus string.
+
+=cut
+
+sub _updateUploadStatus {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $newStatus = shift;
+    if (! defined $newStatus || ! ($self->{'_uploadId'}) ) {
+        croak "Can't update upload record ID = $self->{'_uploadId'}"
+        . " to status = '$newStatus'.";
+    }
+    my $updateSQL =
+        "UPDATE upload
+         SET status = ?
+         WHERE upload_id = ?";
+    if ($self->{'verbose'}) {
+        print "Update upload SQL: $updateSQL\n";
+    }
+    eval {
+        $dbh->begin_work();
+        my $updateSTH = $dbh->prepare($updateSQL);
+        $updateSTH->execute($newStatus, $self->{'_uploadId'});
+        my $rowsAffected = $updateSTH->rows();
+        $updateSTH->finish();
+
+        if (! defined $rowsAffected || $rowsAffected != 1) {
+            croak "Update appeared to fail.";
+        }
+        $dbh->commit();
+    };
+
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= " ALSO: error rolling back _updateUploadStatus transaction: $@\n";
+        }
+        croak "Failed to update status of $self->{'_uploadId'} to $newStatus: $error\n";
+    }
+}
+
+sub _insertNewFile {
+    my $self = shift;
+    my $dbh = shift;
+
+    eval {
+        $dbh->begin_work();
+        $self->_insertNewFileRecord( $dbh );
+        $self->_insertNewProcessingFileRecords( $dbh );
+        $dbh->commit();
+    };
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= " ALSO: error rolling back insertNewFile transaction: $@\n";
+        }
+        unless ($self->{'error'}) {
+            $self->{'error'} = 'insert_file_transaction';
+        }
+        croak $error;
+    }
+
+    return 1;
+}
+
+sub _insertNewFileRecord {
+    my $self = shift;
+    my $dbh = shift;
+
+    my $zipFileMetaType = "application/tar-gz";
+    my $zipFileType = "fastq-by-end-tar-bundled-gz-compressed";
+    my $zipFileDescription = "fastq files from one sequencing run, tarred and gzipped, one file per end";
+
+    my $newFileSQL =
+        "INSERT INTO file (file_path, meta_type, type, description, md5sum )"
+     . " VALUES ( ?, '$zipFileMetaType', '$zipFileType', '$zipFileDescription', ? )"
+     . " RETURNING file_id";
+
+    if ($self->{'verbose'}) {
+         print "Insert file record SQL: $newFileSQL\n";
+    }
+
+    my $rowHR;
+    eval {
+        my $newFileSTH = $dbh->prepare($newFileSQL);
+        $newFileSTH->execute( $self->{'_zipFile'},  $self->{'_zipFileMd5'} );
+        $rowHR = $newFileSTH->fetchrow_hashref();
+        $newFileSTH->finish();
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = 'db_insert_file';
+        croak "Insert of file record failed: $error\n";
+    }
+    if (! defined $rowHR) {
+        $self->{'error'} = 'db_insert_file_returning';
+        croak "Insert of file record appeared to fail\n";
+    }
+
+    $self->{'_zipFileId'} = $rowHR->{'file_id'};
+    if ($self->{'verbose'}) {
+        print "Inserted FILE_ID: $self->{'_zipFileId'}\n";
+    }
+    if (! $self->{'_zipFileId'}) {
+        $self->{'error'} = 'insert_file_data';
+        croak "Insert of file record did not return the new record id\n";
+    }
+
+    return 1;
+}
+
+sub _insertProcessingFileRecords {
+    my $self = shift;
+    my $dbh = shift;
+
+    my $newProcessingFilesSQL =
+        "INSERT INTO processing_files (processing_id, file_id)"
+     . " VALUES (?,?)";
+
+    if ($self->{'verbose'}) {
+         print "Insert processing_files record SQL: $newProcessingFilesSQL\n";
+    }
+
+    eval {
+        my $newProcessingFilesSTH = $dbh->prepare($newProcessingFilesSQL);
+        $newProcessingFilesSTH->execute(
+            $self->{'_fastqs'}->[0]->{'processingId'}, $self->{'_zipFileId'}
+        );
+        my $rowsInserted = $newProcessingFilesSTH->rows();
+        if ($rowsInserted != 1) {
+            $self->{'error'} = "insert_processsing_files_1";
+            croak "failed to insert processing_files record for fastq 1\n";
+        }
+        $newProcessingFilesSTH->execute(
+            $self->{'_fastqs'}->[1]->{'processingId'}, $self->{'_zipFileId'}
+        );
+        $rowsInserted = $newProcessingFilesSTH->rows();
+        if ($rowsInserted != 1) {
+            $self->{'error'} = "insert_processsing_files_2";
+            croak "failed to insert processing_files record for fastq 2\n";
+        }
+    };
+
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'insert_processing_files';
+        }
+        croak "Processing files insert failed: $error\n";
+    }
+
+}
+
+=head2 _zip()
+
+Actually does the zipping, and returns 1, or dies setting 'error' and returning
+an error message.
+=cut
+
+sub _zip() {
+    my $self = shift;
+    my $dbh = shift;
+
+    # Validation
+    for my $fileHR (@{$self->{'_fastqs'}}) {
+         my $file = $fileHR->{'filePath'};
+         if (! -f $file) {
+             $self->{'error'} = "fastq_not_found";
+             croak "Not on file system: $file\n";
+         }
+         if (( -s $file) < $self->{'minFastqSize'}) {
+             $self->{'eerror'} = "fastq-too-small";
+             croak "File size of " . -s $file . " is less than min of $self->{'minFastqSize'} for file $file\n";
+         }
+         my $md5result = `md5sum $file`;
+         $md5result = (split(/ /, $md5result))[0];
+         if (! defined $md5result || $md5result ne $fileHR->{'md5sum'}) {
+             $self->{'error'} = "fastq-md5-mismatch";
+             croak "Current md5 of $md5result does not match original md5 of $fileHR->{'md5sum'} for file $file\n";
+         }
+         my $wcResult = `wc -l $file`;
+         $wcResult =~ /^\s*(\d+)/;
+         $wcResult = $1;
+         if ( $wcResult % 4 != 0 ) {
+             $self->{'eerror'} = "fastq-mod-4-check";
+             croak "Number of lines not a multiple of 4 for file $file\n";
+         }
+         $fileHR->{'lineCount'} = $wcResult;
+    }
+    if (    defined $self->{'_fastqs'}->[1]
+         && $self->{'_fastqs'}->[0]->{'lineCount'} != $self->{'_fastqs'}->[1]->{'lineCount'}
+    ) {
+         $self->{'error'} = "fastq-line-count-mismatch";
+             croak "Number of lines not the same in files \"$self->{'_fastqs'}->[0]->{filePath}\" and \"$self->{'_fastqs'}->[0]->{filePath}\"\n";
+    }
+
+    # Setup target directory
+    my $zipFileDir = File::Spec->catdir(
+        $self->{'dataRoot'}, $self->{'_flowcell'}, $self->{'myName'}
+    );
+    if (! -d $zipFileDir) {
+        my $ok = mkpath($zipFileDir, { mode => 0775 });
+        if (! $ok) {
+            $self->{'error'} = "creating_data_output_dir";
+            die "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
+        }
+    }
+    my $zipFile = $self->{'_flowcell'} . "_" . ($self->{'_laneIndex'} + 1);
+    if (defined $self->{'_barcode'}) {
+        $zipFile .= "_" . $self->{'_barcode'};
+    }
+    $zipFile .= ".tar.gz";
+    $zipFile = File::Spec->catfile( $zipFileDir, $zipFile);
+    if (-e $zipFile) {
+         if ($self->{'rerun'}) {
+             my $ok = unlink $zipFile;
+             if (! $ok) {
+                 $self->{'error'} = "removing_prior_file";
+                 die "Error deleting previous file: $zipFile - $!\n";
+             }
+         }
+         else{
+             $self->{'error'} = "prior_zip_file_exists";
+             die "Error: not rerunning and have preexisting zip file: $zipFile\n";
+         }
+    }
+
+    # Do zip
+    my ($vol0, $fqDir0, $file0) = File::Spec->splitpath(
+             $self->{'_fastqs'}->[0]->{'filePath'}
+    );
+    my $command = "tar -czh -C $fqDir0 -f $zipFile $file0";
+    if (   defined $self->{'_fastqs'}->[1]
+        && defined $self->{'_fastqs'}->[1]->{'filePath'}
+    ) {
+        my ($vol1, $fqDir1, $file1) = File::Spec->splitpath(
+                 $self->{'_fastqs'}->[1]->{'filePath'}
+        );
+        $command .= " $file1";
+    }
+    if  ($self->{'verbose'} ) {
+        print "ZIP COMMAND: $command\n";
+    }
+
+    my $ok = system( $command );
+    if ( $ok != 0 || ! (-f $zipFile) || (-s $zipFile) < (( $self->{'minFastqSize'} / 100 ) + 1 )) {
+        $self->{'error'} = "executing_tar_gzip";
+        die "Failed executing the zip command [$command] with error: $ok\n";
+    }
+    $self->{'_zipFileName'} = $zipFile;
+
+    my $md5result = `md5sum $zipFile`;
+    if (defined $md5result) {
+        $md5result = (split(/ /, $md5result))[0];
+    }
+    if (! defined $md5result) {
+        $self->{'error'} = "zipfile_md5_generation";
+        die "Generation of zip file md5 failed.";
+    }
+    $self->{'_zipMd5Sum'} = $md5result;
+
+    return 1;
+}
+
+=head2 doMeta()
 
  $obj->doMeta();
+
+From $obj, reads:
+ _metaDataRoot      - Absolute path to some directory
+ _fastqUploadId     - Id for new fastq upload record
+ _mapSpliceUploadId - Id for old mapsplice record
+ _uuidgenExec       - Executable for uuid generation
+ _fastqzTemplateDir - Directory where analysis.xml template is.
+ _realFileForUpload - Full path filename to fastqDir.
+
+To $obj, adds
+ _metaDataUuid   - The generated UUID used for this uploads meta-data.
+ _metaDataPath   - Full path, = _metaDataRoot + __metaDataUuid
+ _linkFileName   - The local name
 
 =cut
 
 sub doMeta() {
     my $self = shift;
+    my $dbh = shift;
+    $self->{'step'} = "doMeta";
+
+    # Select/tag upload.status = 'meta-running'.
+    # Create new meta directory using uuidgen
+    # Copy mapsplice experiment.xml and run.xml to this directory.
+    # Generate new analysis.xml from template this directory.
+    # Create file link.
+    # Tag upload as meta-completed
     return 1;
 
 }
@@ -286,6 +1075,9 @@ sub doMeta() {
 
 sub doValidate() {
     my $self = shift;
+    my $dbh = shift;
+    $self->{'step'} = "doValidate";
+
     return 1;
 
 }
@@ -298,8 +1090,10 @@ sub doValidate() {
 
 sub doUpload() {
     my $self = shift;
-    return 1;
+    my $dbh = shift;
+    $self->{'step'} = "doUpload";
 
+    return 1;
 }
 
 =head2 = getAll()
