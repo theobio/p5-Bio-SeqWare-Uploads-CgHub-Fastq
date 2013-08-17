@@ -14,9 +14,10 @@ my $builder = Module::Build->new(
     },
     build_requires => {
         'Test::More' => 0,
+        'DBD::Mock' => '0.018',  # Session objects required
     },
     requires => {
-        'perl'=> '0.008',
+        'perl'=> '0.008',        # No known reason, just being specific.
         'Bio::SeqWare::Db::Connection'=>'0.000002',
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],

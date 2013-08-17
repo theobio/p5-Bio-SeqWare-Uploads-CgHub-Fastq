@@ -363,12 +363,12 @@ sub _findNewLaneToZip {
         FROM vw_files AS vwf, upload_file AS uf, upload AS u
         WHERE vwf.file_id       = uf.file_id
           AND uf.upload_id      = u.upload_id
-          AND u.target          = '$sqlTargetForMapspliceUpload'
-          AND u.external_status = '$sqlExternalStatusForSuccesfulMapspliceUpload'
+          AND u.target          = ?
+          AND u.external_status = ?
           AND vwf.sample_id NOT IN (
               SELECT u.sample_id
               FROM upload AS u
-              WHERE u.target      = '$sqlTargetForFastqUpload'
+              WHERE u.target      = ?
           ) order by vwf.lane_id DESC limit 1";
 
     if ($self->{'verbose'}) {
@@ -379,7 +379,11 @@ sub _findNewLaneToZip {
     my $rowHR;
     eval {
         my $selectionSTH = $dbh->prepare( $selectionSQL );
-        $selectionSTH->execute();
+        $selectionSTH->execute(
+            $sqlTargetForMapspliceUpload,
+            $sqlExternalStatusForSuccesfulMapspliceUpload,
+            $sqlTargetForFastqUpload
+        );
         $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
     };
@@ -396,23 +400,23 @@ sub _findNewLaneToZip {
     $self->{'_laneId'}                 = $rowHR->{'lane_id'};
     $self->{'_sampleId'}               = $rowHR->{'sample_id'};
     $self->{'_mapSpliceUploadId'}      = $rowHR->{'upload_id'};
-    $self->{'_mapspliceUploadBaseDir'} = $rowHR->{'metadata_dir'};
-    $self->{'_mapspliceUploadUuidDir'} = $rowHR->{'cghub_analysis_id'};
+    $self->{'_mapSpliceUploadBaseDir'} = $rowHR->{'metadata_dir'};
+    $self->{'_mapSpliceUploadUuidDir'} = $rowHR->{'cghub_analysis_id'};
     if ($self->{'verbose'}) {
         print( "Found zip candidate"
             . ". " . "LANE: "                       . $self->{'_laneId'}
             . "; " . "SAMPLE: "                     . $self->{'_sampleId'}
             . "; " . "MAPSPLICE UPLOAD_ID: "        . $self->{'_mapSpliceUploadId'}
-            . "; " . "MAPSPLICE UPLOAD_BASE_DIR: "  . $self->{'_mapspliceUploadBaseDir'}
-            . "; " . "MAPSPLICE UPLOAD_UUID_DIR: "  . $self->{'_mapspliceUploadUuidDir'}
+            . "; " . "MAPSPLICE UPLOAD_BASE_DIR: "  . $self->{'_mapSpliceUploadBaseDir'}
+            . "; " . "MAPSPLICE UPLOAD_UUID_DIR: "  . $self->{'_mapSpliceUploadUuidDir'}
             . "\n");
     }
 
     unless (   $self->{'_laneId'}
             && $self->{'_sampleId'}
             && $self->{'_mapSpliceUploadId'}
-            && $self->{'_mapspliceUploadBaseDir'}
-            && $self->{'_mapspliceUploadUuidDir'}
+            && $self->{'_mapSpliceUploadBaseDir'}
+            && $self->{'_mapSpliceUploadUuidDir'}
     ) {
         $self->{'error'} = "lane_lookup_data";
         croak "Failed to retrieve lane, sample, and/or mapsplice upload data.";
@@ -457,7 +461,7 @@ sub _insertNewZipUploadRecord {
         print ("SQL to insert new upload record for zip:\$insertUploadSQL\n");
     }
 
-    my $targetDir = File::Spec::catdir(
+    my $targetDir = File::Spec->catdir(
         $self->{'_fastqUploadBaseDir'},
         $self->{'_fastqUploadUuidDir'}
     );
