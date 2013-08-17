@@ -256,9 +256,11 @@ sub test__insertNewZipUploadRecord {
     plan( tests => 2 );
 
     # Object will be modified, so need local
-    my $sampleId = -19;
-    my $laneId   = -12;
-    my $uploadId = -21;
+    my $sampleId    = -19;
+    my $laneId      = -12;
+    my $uploadId    = -21;
+    my $metaDataDir = "/some/root/dir";
+    my $uuidDir     = "B2F72FC3-2B9C-4448-B0C2-FE288C3C200C";
 
     my $objToModify = $CLASS->new( $OPT_HR );
     $objToModify->{'_laneId'} = $laneId;
