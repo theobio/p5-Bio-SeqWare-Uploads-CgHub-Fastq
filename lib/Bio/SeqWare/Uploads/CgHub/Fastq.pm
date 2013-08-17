@@ -288,7 +288,9 @@ sub doZip {
     return 1;
 }
 
-=head _selectLaneToUpload()
+=head2 _tagLaneToUpload()
+
+    $self->_tagLaneToUpload( $dbh );
 
 =cut
 
@@ -495,6 +497,12 @@ sub _insertNewZipUploadRecord {
 
     return 1;
 }
+
+=head2 _createUploadWorkspace
+
+    $self->_createUploadWorkspace( $dbh );
+
+=cut
 
 sub _createUploadWorkspace {
 
