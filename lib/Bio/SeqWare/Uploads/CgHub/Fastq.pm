@@ -480,7 +480,7 @@ sub _insertNewZipUploadRecord {
         croak "Insert of new upload failed: $@";
     } 
     if (! defined $rowHR) {
-         die "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
+         carp "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
     }
 
     $self->{'_fastqUploadId'} = $rowHR->{'upload_id'};
@@ -507,19 +507,19 @@ sub _createUploadWorkspace {
 
     if (! -d $self->{'_fastqUploadBaseDir'}) {
         $self->{'error'} = "no_fastq_base_dir";
-        die "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
+        carp "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
     }
 
     my $metaOutPath = File::Spec::catdir($self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'});
     if (-d $metaOutPath) {
         $self->{'error'} = 'fastq_upload_dir_exists';
-        die "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
+        carp "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
     }
 
     my $ok = mkpath($metaOutPath, { mode => 0775 });
     if (! $ok) {
         $self->{'error'} = "creating_meta_dir";
-        die "Could not create the upload output dir: $metaOutPath";
+        carp "Could not create the upload output dir: $metaOutPath";
     }
 
     return 1;
@@ -973,7 +973,7 @@ sub _zip() {
         my $ok = mkpath($zipFileDir, { mode => 0775 });
         if (! $ok) {
             $self->{'error'} = "creating_data_output_dir";
-            die "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
+            carp "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
         }
     }
     my $zipFile = $self->{'_flowcell'} . "_" . ($self->{'_laneIndex'} + 1);
@@ -987,12 +987,12 @@ sub _zip() {
              my $ok = unlink $zipFile;
              if (! $ok) {
                  $self->{'error'} = "removing_prior_file";
-                 die "Error deleting previous file: $zipFile - $!\n";
+                 carp "Error deleting previous file: $zipFile - $!\n";
              }
          }
          else{
              $self->{'error'} = "prior_zip_file_exists";
-             die "Error: not rerunning and have preexisting zip file: $zipFile\n";
+             carp "Error: not rerunning and have preexisting zip file: $zipFile\n";
          }
     }
 
@@ -1016,7 +1016,7 @@ sub _zip() {
     my $ok = system( $command );
     if ( $ok != 0 || ! (-f $zipFile) || (-s $zipFile) < (( $self->{'minFastqSize'} / 100 ) + 1 )) {
         $self->{'error'} = "executing_tar_gzip";
-        die "Failed executing the zip command [$command] with error: $ok\n";
+        carp "Failed executing the zip command [$command] with error: $ok\n";
     }
     $self->{'_zipFileName'} = $zipFile;
 
@@ -1026,7 +1026,7 @@ sub _zip() {
     }
     if (! defined $md5result) {
         $self->{'error'} = "zipfile_md5_generation";
-        die "Generation of zip file md5 failed.";
+        carp "Generation of zip file md5 failed.";
     }
     $self->{'_zipMd5Sum'} = $md5result;
 
