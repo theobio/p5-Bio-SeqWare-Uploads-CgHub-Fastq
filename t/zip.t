@@ -198,33 +198,50 @@ sub test__findNewLaneToZip {
 }
 
 sub test__createUploadWorkspace {
-    plan( tests => 3 );
+    plan( tests => 8 );
     my $targetDir = File::Spec->catdir( $TEMP_DIR, "FQ" );
     mkdir( $targetDir );
 
 
     my $opt = { %$OPT_HR,
-        'fastqUploadBaseDir' => $targetDir,
+        'uploadFastqBaseDir' => $targetDir,
         '_bamUploadDir'      => $DATA_DIR,
     };
     my $obj = $CLASS->new( $opt );
     my $dbh = undef;
 
-    # Testing test setup
+    # Testing the test.
+    {
+        ok(-d $targetDir, "Found target base directory");
+    }
     {
         my $got  = $obj->_createUploadWorkspace();
         my $want = 1;
-        is( $got, $want, "_createUploadWorkspace appears to run succesfully");
+        {
+            is( $got, $want, "_createUploadWorkspace appears to run succesfully");
+        }
     }
     {
         my $fromFile = File::Spec->catfile(           $obj->{'_bamUploadDir'},    "experiment.xml" );
         my $toFile = File::Spec->catfile( $targetDir, $obj->{'_fastqUploadUuid'}, "experiment.xml" );
-        file_contents_eq( $fromFile, $toFile, "experiment file copied ok");
+        {
+            ok(-f $fromFile && (-s $fromFile) > 0, "Found source experiment file");
+        }{
+            ok(-f $toFile && (-s $toFile) > 0, "Found target experiment file after copy");
+        }{
+            files_eq( $fromFile, $toFile, "experiment file copied ok");
+        }
     }
     {
         my $fromFile = File::Spec->catfile( $obj->{'_bamUploadDir'},   "run.xml" );
         my $toFile = File::Spec->catfile(   $obj->{'_fastqUploadDir'}, "run.xml" );
-        file_contents_eq( $fromFile, $toFile, "run file copied ok");
+        {
+            ok(-f $fromFile && (-s $fromFile) > 0, "Found source run file");
+        }{
+            ok(-f $toFile && (-s $toFile) > 0, "Found target run file after copy");
+        }{
+            files_eq( $fromFile, $toFile, "run file copied ok");
+        }
     }
 }
 
