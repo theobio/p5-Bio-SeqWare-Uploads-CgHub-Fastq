@@ -12,13 +12,15 @@ my $builder = Module::Build->new(
     configure_requires => {
         'Module::Build' => 0,
     },
-    build_requires => {
-        'Test::More' => 0,
-        'DBD::Mock' => '0.018',  # Session objects required
+    build_requires             => {
+        'Test::More'           => 0,
+        'DBD::Mock'            => '0.018',  # Session objects required
+        'Test::File::Contents' => 0,
     },
     requires => {
-        'perl'=> '0.008',        # No known reason, just being specific.
-        'Bio::SeqWare::Db::Connection'=>'0.000002',
+        'perl' => '0.014',        # Safe eval/$@ as throw/catch for exception handling.
+        'Bio::SeqWare::Db::Connection'=> '0.000002',  # First working version.
+        'Bio::SeqWare::Config'        => '0.000.003', # Added needed keys.
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],
     create_makefile_pl => 'traditional',
