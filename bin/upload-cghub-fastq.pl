@@ -22,7 +22,7 @@ Version 0.000.001   # PRE-RELEASE
 
 =cut
 
-our $VERSION = '0.000001';   # PRE-RELEASE
+our $VERSION = $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION;   # PRE-RELEASE
 
 # TODO: consider allow pre-parsing cli parameters for config file name.
 
@@ -33,7 +33,14 @@ my $opt = _processCommandLine( $configOptions );
 print Dumper( $opt );
 my $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
 
-$instance->run();
+eval {
+    $instance->run();
+};
+
+if (@$) {
+    die "Program died in step $instance->{step} with error: $@\n";
+}
+
 
 =head1 SYNOPSIS
 
@@ -41,13 +48,20 @@ upload-cghub-fastq [options]
 
     Options:
 
-        # DB parameters (normally from config file)
+        # Parameters normally from config file
         --dbUser      SeqWare database login user name
         --dbPassword  SeqWare database login password
         --dbSchema    SeqWare database name
         --dbHost      SeqWare database host machine
+        --dataRoot    Seqware data root dir. All data under here
+                          (like $dataRoot/flowcell/workflow/...)
+        --uploadFastqDir Data root for upload file archiving
 
-        # Selection constraints
+        # Validation rules
+        --minFastqSize  Error if fastq size < this, in bytes
+        --rerun         Deletes output file on collision instead of failing
+
+        # Selection constraints [NOT CURRENTLY IMPLEMENTED]
         --sample      Sample name string (title)
         --flowcell    Sequencer run flowcell name
         --lane        The lane.lane number (lane_index + 1)
@@ -69,12 +83,14 @@ upload-cghub-fastq [options]
 
 =head1 DESCRIPTION
 
-Run the cghub upload process. Reads most of its options from the seqware config
-file, all options can be over-ridden by command line options, but no option
-is required.
+Run the cghub upload process for FastQ files. Reads some of its options from
+the seqware config file, all options can be over-ridden by command line
+options, but no option is required.
 
 Breaks the task into four pieces, each of which has its own C<--runMode>.
 The default runMode is "ALL" which runs each of the four pieces in turn.
+
+=cut
 
 =head2 runMode
 
@@ -118,31 +134,49 @@ Run all steps, in order ("ZIP", "META", "VALIDATE", "UPLOAD").
 =cut
 
 sub _processCommandLine {
-    my $optionsHR = shift;
-    my %options = %$optionsHR;
 
-    $options{'argv'} = [ @ARGV ];
+    # Values from vconfig file
+    my $configOptionsHR = shift;
 
+    # Local defaults
+    my $optionsHR = {
+        'minFastqSize' => 10 * 1000 * 1000,
+        'runMode' => 'ALL',
+    };
+
+    # Combine local defaults with ()over-ride by) config file options
+    my %opt = ( %$optionsHR, %$configOptionsHR );
+
+    # Record command line arguments
+    $opt{'argv'} = [ @ARGV ];
+
+    # Override local/config options with command line options
     GetOptions(
-        'dbUser=s'     => \$options{'dbUser'},
-        'dbPassword=s' => \$options{'dbPassword'},
-        'dbHost=s'     => \$options{'dbHost'},
-        'dbSchema=s'   => \$options{'dbSchema'},
+        'dbUser=s'     => \$opt{'dbUser'},
+        'dbPassword=s' => \$opt{'dbPassword'},
+        'dbHost=s'     => \$opt{'dbHost'},
+        'dbSchema=s'   => \$opt{'dbSchema'},
 
-        'sample=s'      => \$options{'sample'},
-        'flowcell=s'    => \$options{'flowcell'},
-        'lane=i'        => \$options{'lane'},
-        'lane_index=i'  => \$options{'lane_index'},
-        'barcode=s'     => \$options{'barcode'},
-        'uploadId=i'    => \$options{'uploadId'},
-        'bamFileId=i'   => \$options{'bamFileId'},
-        'laneId=i'      => \$options{'laneId'},
-        'sampleType=i'  => \$options{'sampleType'},
+        'uploadFastqBaseDir=s' => \$opt{'uploadFastqBaseDir'},
+        'uploadBamBaseDir=s' => \$opt{'uploadBamBaseDir'},
+        'dataRoot=s'       => \$opt{'dataRoot'},
+        'minFastqSize=i'   => \$opt{'minFastqSize'},
+        'rerun'            => \$opt{'rerun'},
+        'runMode=s'        => \$opt{'runMode'},
 
-        'runMode=s'    => \$options{'runMode'},
-        'verbose'      => \$options{'verbose'},
+#        'sample=s'      => \$opt{'sample'},
+#        'flowcell=s'    => \$opt{'flowcell'},
+#        'lane=i'        => \$opt{'lane'},
+#        'lane_index=i'  => \$opt{'lane_index'},
+#        'barcode=s'     => \$opt{'barcode'},
+#        'uploadId=i'    => \$opt{'uploadId'},
+#        'bamFileId=i'   => \$opt{'bamFileId'},
+#        'laneId=i'      => \$opt{'laneId'},
+#        'sampleType=i'  => \$opt{'sampleType'},
+
+        'verbose'      => \$opt{'verbose'},
         'version'      => sub {
-            print "upload-cghub-fastq.pl v$Bio::SeqWare::Uploads::CgHub::Fastq::VERSION\n";
+            print "upload-cghub-fastq.pl v$VERSION\n";
             exit 1;
         },
         'help'         => sub {
@@ -150,5 +184,5 @@ sub _processCommandLine {
         },
     ) or pod2usage( { -verbose => 1, -exitval => 2 });
 
-    return \%options
+    return \%opt;
 }
