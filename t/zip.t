@@ -4,86 +4,38 @@ use strict;
 use warnings;
 use Carp;                 # Caller-relative error messages
 use Data::Dumper;         # Quick error messages
+use File::Spec;           # Portable file handling
+
 use File::Temp;           # Simple files for testing
-use File::Spec;
 use DBI;
-use DBD::Mock;
-use Test::Exception;
-use DBD::Mock::Session;
 
 use Bio::SeqWare::Config; # Access SeqWare settings file as options
 use Bio::SeqWare::Db::Connection;
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
+use DBD::Mock;
+use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test Modules
+use Test::Exception;
+use Test::File::Contents;
 use Test::More 'tests' => 9;   # Run this many Test::More compliant subtests.
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
+my $DATA_DIR = File::Spec->catdir( "t", "Data" );
 
 #
 # Set up fastq files to test on
 #
 
-my $fastq1Text = <<'FQ1';
-@UNC9-SN296:380:C24VKACXX:2:1101:1240:1035 1:N:0:GATCAG
-CCANGGTCTTCAAGAAATGGTGATGTCAAAAGTCATCATAGTCCATAN
-+
-@CC#4AADHHHHFHJGIJHIEHIGJIIFIJIIFHIIIJJIIEIJJJJ#
-@UNC9-SN296:380:C24VKACXX:2:1101:1479:1017 1:N:0:GATCAG
-NACCCACCTGTCAGCCTCACCTGCCACCTCTCTCCATGTTGGCTTGTT
-+
-#1=DDFFFHHHHHJIJIJJIIIJJJJIIIIIIJJJJGGFIEIJJJIDE
-FQ1
-
-my $FASTQ1 = File::Temp->new();
-print $FASTQ1 "$fastq1Text";
-$FASTQ1->seek( 0, SEEK_END );
-
+my $FASTQ1 = File::Spec->catfile( $DATA_DIR, "paired_end_one.fastq");
 my $FASTQ1_MD5 = '1c93d2e4c1c0b65e59c8a8923c7d2b7d';
 
-my $fastq2Text = <<'FQ2';
-@UNC9-SN296:380:C24VKACXX:2:1101:1240:1035 2:N:0:GATCAG
-TTTATAACCATTTTGAGCTAATAAGCTATACCTCACTCTCTGCTTTCN
-+
-CCCFFFFFHHHHGJFHIIIIIGIHJJJIIJJJIJJJJJJJJJJJIJI#
-@UNC9-SN296:380:C24VKACXX:2:1101:1479:1017 2:N:0:GATCAG
-GACCAAAGCGACCTAAACACTTGAAGCTAAAAGCAAGTGCTGATGATG
-+
-@CCFFFFFHHHHHIJJIJJJJIHIJIJIIJIJGHHIJGIIJJHIIIJJ
-FQ2
-
-my $FASTQ2 = File::Temp->new();
-print $FASTQ2 "$fastq2Text";
-$FASTQ2->seek( 0, SEEK_END );
-
+my $FASTQ2 = File::Spec->catfile( $DATA_DIR, "paired_end_two.fastq");
 my $FASTQ2_MD5 = 'a285bcffb5dcf00433f113c191b7829b';
 
-my $fastqBadText = <<'FQ_BAD';
-TTTATAACCATTTTGAGCTAATAAGCTATACCTCACTCTCTGCTTTCN
-+
-CCCFFFFFHHHHGJFHIIIIIGIHJJJIIJJJIJJJJJJJJJJJIJI#
-@UNC9-SN296:380:C24VKACXX:2:1101:1479:1017 2:N:0:GATCAG
-GACCAAAGCGACCTAAACACTTGAAGCTAAAAGCAAGTGCTGATGATG
-+
-@CCFFFFFHHHHHIJJIJJJJIHIJIJIIJIJGHHIJGIIJJHIIIJJ
-FQ_BAD
-
+my $FASTQ_BAD = File::Spec->catfile( $DATA_DIR, "bad_truncated.fastq");
 my $FASTQ_BAD_MD5 = '7643c31b47fa345c0ebc88a90a1315d0';
 
-my $FASTQ_BAD = File::Temp->new();
-print $FASTQ_BAD "$fastqBadText";
-$FASTQ_BAD->seek( 0, SEEK_END );
-
-my $fastqMismatchTxt = <<'FQ2_MISMATCH';
-@UNC9-SN296:380:C24VKACXX:2:1101:1240:1035 2:N:0:GATCAG
-TTTATAACCATTTTGAGCTAATAAGCTATACCTCACTCTCTGCTTTCN
-+
-CCCFFFFFHHHHGJFHIIIIIGIHJJJIIJJJIJJJJJJJJJJJIJI#
-FQ2_MISMATCH
-
-my $FASTQ_MISMATCH = File::Temp->new();
-print $FASTQ_MISMATCH "$fastqMismatchTxt";
-$FASTQ_MISMATCH->seek( 0, SEEK_END );
-
+my $FASTQ_MISMATCH = File::Spec->catfile( $DATA_DIR, "single_end.fastq");
 my $FASTQ_MISMATCH_MD5 = '9e758d73df84c21d1d23ef985f07f8f8';
 
 #
@@ -98,7 +50,12 @@ my $OPT_HR = { %$OPT,
 $OBJ = $CLASS->new( $OPT_HR );
 
 $OBJ->{'minFastqSize'} = 10;
-$OBJ->{'_fastqs'} = [
+$OBJ->{'rerun'}        = 1;
+$OBJ->{'_flowcell'}    = '130702_UNC9-SN296_0380_BC24VKACXX';
+$OBJ->{'_laneIndex'}   = '1';
+$OBJ->{'_barcode'}     = 'GATCAG';
+$OBJ->{'_uploadId'}    = -21;
+$OBJ->{'_fastqs'}      = [
     {
         'filePath' => $FASTQ1,
         'md5sum'   => $FASTQ1_MD5,
@@ -107,11 +64,6 @@ $OBJ->{'_fastqs'} = [
         'md5sum'   => $FASTQ2_MD5,
     },
 ];
-$OBJ->{'_flowcell'} = '130702_UNC9-SN296_0380_BC24VKACXX';
-$OBJ->{'_laneIndex'} = '1';
-$OBJ->{'_barcode'} = 'GATCAG';
-$OBJ->{'_uploadId'} = -21;
-$OBJ->{'rerun'} = 1;
 
 
 my $EXPECT_OUTFILE = File::Spec->catdir(
@@ -128,23 +80,17 @@ my $MOCK_DBH = DBI->connect(
     { 'RaiseError' => 1, 'PrintError' => 0 },
 );
 
-#
-# Run tests
-#
+my $TEMP_DIR = File::Temp->newdir();  # Auto-delete when out of scope
 
-subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
-subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
-subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
-subtest( '_getLaneToZip()'             => \&test__getLaneToZip );
-subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
-subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
-subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
-subtest( '_zip()'                      => \&test__zip );
-subtest( '_insertNewFileRecord()' => \&test_insertNewFileRecord);
-
-#
-# Cleanup
-#
+ subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
+ subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
+ subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
+ subtest( '_getLaneToZip()'             => \&test__getLaneToZip );
+ subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
+ subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
+ subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
+ subtest( '_zip()'                      => \&test__zip );
+ subtest( '_insertNewFileRecord()'      => \&test_insertNewFileRecord);
 
 #
 # Subtests
@@ -156,8 +102,8 @@ sub test__findNewLaneToZip {
     my $sampleId    = -19;
     my $laneId      = -12;
     my $uploadId    = -21;
-    my $metaDataDir = "/some/root/dir";
-    my $uuidDir     = "B2F72FC3-2B9C-4448-B0C2-FE288C3C200C";
+    my $metaDataDir = "t";
+    my $uuidDir     = "Data";
     
     # Test when good data returned
     {
@@ -171,37 +117,36 @@ sub test__findNewLaneToZip {
         });
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'getLanesToZip', @dbEventsOk );
-    
-        # Object will be modified, so need local
-        my $objToModify = $CLASS->new( $OPT_HR );
-        
+
+        my $obj = $CLASS->new( $OPT_HR );
+
         {
-            my $got  = $objToModify->_findNewLaneToZip( $MOCK_DBH );
+            my $got  = $obj->_findNewLaneToZip( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, "Return 1 if found candidate to zip" );
         }
         {
-            my $got  = $objToModify->{'_laneId'};
+            my $got  = $obj->{'_laneId'};
             my $want = $laneId;
             is( $got, $want, "Lane id stored in object" );
         }
         {
-            my $got  = $objToModify->{'_sampleId'};
+            my $got  = $obj->{'_sampleId'};
             my $want = $sampleId;
             is( $got, $want, "Sample id stored in object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadId'};
+            my $got  = $obj->{'_bamUploadId'};
             my $want = $uploadId;
             is( $got, $want, "Mapsplice upload id stored in object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadBaseDir'};
+            my $got  = $obj->{'_bamUploadBaseDir'};
             my $want = $metaDataDir;
             is( $got, $want, "Mapsplice upload meta data dir is stored in object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadUuidDir'};
+            my $got  = $obj->{'_bamUploadUuid'};
             my $want = $uuidDir;
             is( $got, $want, "Mapsplice upload UUID stored in object" );
         }
@@ -209,6 +154,8 @@ sub test__findNewLaneToZip {
 
     # Test when no lane to zip is found.
     {
+        my $obj = $CLASS->new( $OPT_HR );
+
         my @dbEventsNone = ({
             'statement' => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
             'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
@@ -217,36 +164,33 @@ sub test__findNewLaneToZip {
         $MOCK_DBH->{'mock_session'} =
                 DBD::Mock::Session->new( 'noLanesToZip', @dbEventsNone );
 
-        # Object may be modified, so need local
-        my $objToModify = $CLASS->new( $OPT_HR );
-
         {
-            my $got  = $OBJ->_findNewLaneToZip( $MOCK_DBH );
+            my $got  = $obj->_findNewLaneToZip( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, "Return 1 if found no candidate to zip" );
         }
         {
-            my $got  = $objToModify->{'_laneId'};
+            my $got  = $obj->{'_laneId'};
             my $want = undef;
             is( $got, $want, "Lane id not retrieved for object" );
         }
         {
-            my $got  = $objToModify->{'_sampleId'};
+            my $got  = $obj->{'_sampleId'};
             my $want = undef;
             is( $got, $want, "Sample id not retrieved for object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadId'};
+            my $got  = $obj->{'_bamUploadId'};
             my $want = undef;
             is( $got, $want, "Mapsplice upload id not retrieved for object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadBaseDir'};
+            my $got  = $obj->{'_bamUploadBaseDir'};
             my $want = undef;
             is( $got, $want, "Mapsplice upload meta data dir not retrieved for object" );
         }
         {
-            my $got  = $objToModify->{'_mapSpliceUploadUuidDir'};
+            my $got  = $obj->{'_bamUploadUuid'};
             my $want = undef;
             is( $got, $want, "Mapsplice upload UUID not retrieved for object" );
         }
@@ -254,9 +198,34 @@ sub test__findNewLaneToZip {
 }
 
 sub test__createUploadWorkspace {
-    plan( tests => 1 );
+    plan( tests => 3 );
+    my $targetDir = File::Spec->catdir( $TEMP_DIR, "FQ" );
+    mkdir( $targetDir );
 
-    fail( "_createUploadWorkspace tests not implemented" );
+
+    my $opt = { %$OPT_HR,
+        'fastqUploadBaseDir' => $targetDir,
+        '_bamUploadDir'      => $DATA_DIR,
+    };
+    my $obj = $CLASS->new( $opt );
+    my $dbh = undef;
+
+    # Testing test setup
+    {
+        my $got  = $obj->_createUploadWorkspace();
+        my $want = 1;
+        is( $got, $want, "_createUploadWorkspace appears to run succesfully");
+    }
+    {
+        my $fromFile = File::Spec->catfile(           $obj->{'_bamUploadDir'},    "experiment.xml" );
+        my $toFile = File::Spec->catfile( $targetDir, $obj->{'_fastqUploadUuid'}, "experiment.xml" );
+        file_contents_eq( $fromFile, $toFile, "experiment file copied ok");
+    }
+    {
+        my $fromFile = File::Spec->catfile( $obj->{'_bamUploadDir'},   "run.xml" );
+        my $toFile = File::Spec->catfile(   $obj->{'_fastqUploadDir'}, "run.xml" );
+        file_contents_eq( $fromFile, $toFile, "run file copied ok");
+    }
 }
 
 sub test__insertNewZipUploadRecord {
@@ -266,8 +235,8 @@ sub test__insertNewZipUploadRecord {
     my $sampleId    = -19;
     my $laneId      = -12;
     my $uploadId    = -21;
-    my $metaDataDir = "/some/root/dir";
-    my $uuidDir     = "B2F72FC3-2B9C-4448-B0C2-FE288C3C200C";
+    my $metaDataDir = "t";
+    my $uuidDir     = "Data";
 
     my $objToModify = $CLASS->new( $OPT_HR );
     $objToModify->{'_laneId'} = $laneId;
