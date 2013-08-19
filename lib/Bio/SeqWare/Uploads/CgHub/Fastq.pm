@@ -348,6 +348,25 @@ To prevent collisions with parallel runs, this query should be combined in a
 transaction with and update to insert an upload record that tags a lane as
 being processed for fastq upload (i.e. with upload.target = CGHUB_FASTQ).
 
+Uses
+
+    $self->{'verbose'} => echo SQL, set values
+
+Sets
+
+    '_laneId'           = vw_files.lane_id (joined with upload, upload_files)
+    '_sampleId'         = upload.sample_id
+    '_bamUploadId'      = upload.upload_id
+    '_bamUploadBaseDir' = upload.metadata_dir
+    '_bamUploadUuid'    = upload.cghub_analysis_id
+    '_bamUploadDir'     = catdir( '_bamUploadBaseDir', '_bamUploadUuid' )
+
+Errors
+
+    zip_failed_lane_lookup => Db error when attempting SELECT query. Note:
+                              emtpy result set ok (nothing to do).
+    zip_failed_no_bam_upload_dir_found => No dir matches query result.
+
 =cut
 
 sub _findNewLaneToZip {
@@ -398,29 +417,37 @@ sub _findNewLaneToZip {
     }
 
     # Looks like we got data, so save it off.
-    $self->{'_laneId'}                 = $rowHR->{'lane_id'};
-    $self->{'_sampleId'}               = $rowHR->{'sample_id'};
-    $self->{'_mapSpliceUploadId'}      = $rowHR->{'upload_id'};
-    $self->{'_mapSpliceUploadBaseDir'} = $rowHR->{'metadata_dir'};
-    $self->{'_mapSpliceUploadUuidDir'} = $rowHR->{'cghub_analysis_id'};
+    $self->{'_laneId'}           = $rowHR->{'lane_id'};
+    $self->{'_sampleId'}         = $rowHR->{'sample_id'};
+    $self->{'_bamUploadId'}      = $rowHR->{'upload_id'};
+    $self->{'_bamUploadBaseDir'} = $rowHR->{'metadata_dir'};
+    $self->{'_bamUploadUuid'}    = $rowHR->{'cghub_analysis_id'};
     if ($self->{'verbose'}) {
         print( "Found zip candidate"
             . ". " . "LANE: "                       . $self->{'_laneId'}
             . "; " . "SAMPLE: "                     . $self->{'_sampleId'}
-            . "; " . "MAPSPLICE UPLOAD_ID: "        . $self->{'_mapSpliceUploadId'}
-            . "; " . "MAPSPLICE UPLOAD_BASE_DIR: "  . $self->{'_mapSpliceUploadBaseDir'}
-            . "; " . "MAPSPLICE UPLOAD_UUID_DIR: "  . $self->{'_mapSpliceUploadUuidDir'}
+            . "; " . "BAM UPLOAD_ID: "        . $self->{'_bamUploadId'}
+            . "; " . "BAM UPLOAD_BASE_DIR: "  . $self->{'_bamUploadBaseDir'}
+            . "; " . "BAM UPLOAD_UUID: "      . $self->{'_bamUploadUuid'}
             . "\n");
     }
 
     unless (   $self->{'_laneId'}
             && $self->{'_sampleId'}
-            && $self->{'_mapSpliceUploadId'}
-            && $self->{'_mapSpliceUploadBaseDir'}
-            && $self->{'_mapSpliceUploadUuidDir'}
+            && $self->{'_bamUploadId'}
+            && $self->{'_bamUploadBaseDir'}
+            && $self->{'_bamUploadUuid'}
     ) {
         $self->{'error'} = "lane_lookup_data";
-        croak "Failed to retrieve lane, sample, and/or mapsplice upload data.";
+        croak "Failed to retrieve lane, sample, and/or bam upload data.";
+    }
+
+    $self->{'_bamUploadDir'} = File::Spec->catdir(
+        $self->{'_bamUploadBaseDir'}, $self->{'_bamUploadUuid'}
+    );
+    unless ( -d $self->{'_bamUploadDir'} ) {
+        $self->{'error'} = "no_bam_upload_dir_found";
+        croak "Failed to find the expected bam upload dir: $self->{'_bamUploadDir'}\n";
     }
 
     return 1;
@@ -430,6 +457,34 @@ sub _findNewLaneToZip {
 
     $self->_createUploadWorkspace( $dbh );
 
+The $dbh parameter is ignored. Returns 1 for sucess or sets 'error' and croaks with
+error message.
+
+Uses internal values: 
+
+    uploadFastqBaseDir => from config, base directory for fastq zip uploads.
+    _bamUploadDir      => directory for the previously completed 
+                          mapsplice genome bam uploads for this lane.
+
+Sets internal values:
+
+    _fastqUploadUuid => Generates a new uuid value and stores it here.
+    _fastqUploadDir  => directory for fastq uploads for this lane,
+                        made from the fastqUploadBaseDir + new uuid lane value
+
+Side effects:
+
+Creates <_fastqUploadDir> directory = <fastqUploadBaseDir> / <_fastqUploadUuid>.
+Copies run.xml and experiment.xml from <_bamUploadDir> to
+<_fastqUploadDir>
+
+Errors:
+
+    zip_failed_no_fastq_base_dir       => No such dir: fastqUploadBaseDir
+    zip_failed_fastq_upload_dir_exists => Exists: uuid upload dir
+    zip_failed_creating_meta_dir       => Not Created: uuid upload dir
+    zip_failed_copying_run_meta_file   => Not copied: run.xml
+    zip_failed_copying_experiment_meta_file  => Not copied: expwriment.xml
 =cut
 
 sub _createUploadWorkspace {
@@ -437,58 +492,51 @@ sub _createUploadWorkspace {
     my $self = shift;
     my $dbh = shift;
 
-    $self->{'_fastqUploadUuidDir'} = `uuidgen`;
-    chomp $self->{'_fastqUploadUuidDir'};
-    $self->{'_fastqUploadBaseDir'} = $self->{'fastqUploadDir'};
-
-    if (! -d $self->{'_fastqUploadBaseDir'}) {
+    if (! -d $self->{'uploadFastqBaseDir'}) {
         $self->{'error'} = "no_fastq_base_dir";
-        croak "Can't find the fastq upload base dir: $self->{'_fastqUploadBaseDir'}";
+        croak "Can't find the fastq upload base dir: $self->{'uploadFastqBaseDir'}";
     }
 
-    my $metaOutPath = File::Spec::catdir($self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'});
-    if (-d $metaOutPath) {
+    $self->{'_fastqUploadUuid'} = `uuidgen`;
+    chomp $self->{'_fastqUploadUuid'};
+    $self->{'_fastqUploadDir'} = File::Spec->catdir(
+        $self->{'uploadFastqBaseDir'}, $self->{'_fastqUploadUuid'}
+    );
+
+    if (-d $self->{'_fastqUploadDir'}) {
         $self->{'error'} = 'fastq_upload_dir_exists';
-        croak "Upload directory already exists. That shouldn't happen: $metaOutPath\n";
+        croak "Upload directory already exists. That shouldn't happen: $self->{'_fastqUploadDir'}\n";
     }
 
     eval {
-        make_path($metaOutPath, { mode => 0775 });
+        make_path($self->{'_fastqUploadDir'}, { mode => 0775 });
     };
     if ($@) {
         my $error = $@;
         $self->{'error'} = "creating_meta_dir";
-        croak "Could not create the upload output dir: $metaOutPath\n$!\n$@\n";
+        croak "Could not create the upload output dir: $self->{'_fastqUploadDir'}\n$!\n$@\n";
     }
 
-    my $sourceRunFilePath = File::Spec->catfile(
-        $self->{'_mapSpliceUploadBaseDir'}, $self->{'_mapSpliceUploadUuidDir'}, "run.xml"
-    );
-    my $targetRunFilePath = File::Spec->catfile(
-        $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'}, "run.xml"
-    );
+    my $fromRunFilePath = File::Spec->catfile( $self->{'_bamUploadDir'},   "run.xml" );
+    my $toRunFilePath   = File::Spec->catfile( $self->{'_fastqUploadDir'}, "run.xml" );
     eval {
-        cp( $sourceRunFilePath, $targetRunFilePath );
+        cp( $fromRunFilePath, $toRunFilePath );
     };
     if ($@) {
         my $error = $@;
-        $self->{'error'} = "copying_run_meta_files";
-        croak "Could not copy the run.xml meta file FROM: $sourceRunFilePath\nTO: $targetRunFilePath\n$!\n$error\n";
+        $self->{'error'} = "copying_run_meta_file";
+        croak "Could not copy the run.xml meta file FROM: $fromRunFilePath\nTO: $toRunFilePath\n$!\n$error\n";
     }
 
-    my $sourceExperimentFilePath = File::Spec->catfile(
-        $self->{'_mapSpliceUploadBaseDir'}, $self->{'_mapSpliceUploadUuidDir'}, "experiment.xml"
-    );
-    my $targetExperimentFilePath = File::Spec->catfile(
-        $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuidDir'}, "experiment.xml"
-    );
+    my $fromExperimentFilePath = File::Spec->catfile( $self->{'_bamUploadDir'},   "experiment.xml" );
+    my $toExperimentFilePath   = File::Spec->catfile( $self->{'_fastqUploadDir'}, "experiment.xml" );
     eval {
-        cp($sourceExperimentFilePath, $targetExperimentFilePath);
+        cp($fromExperimentFilePath, $toExperimentFilePath);
     };
     if ($@) {
         my $error = $@;
         $self->{'error'} = "copying_experiment_meta_files";
-        croak "Could not copy the experiment.xml meta file FROM: $sourceExperimentFilePath\nTO: $targetExperimentFilePath\n$!\n$error\n";
+        croak "Could not copy the experiment.xml meta file FROM: $fromExperimentFilePath\nTO: $toExperimentFilePath\n$!\n$error\n";
     }
 
     return 1;
