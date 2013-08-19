@@ -104,7 +104,7 @@ sub test__findNewLaneToZip {
     my $uploadId    = -21;
     my $metaDataDir = "t";
     my $uuidDir     = "Data";
-    
+
     # Test when good data returned
     {
         my @dbEventsOk = ({
@@ -226,9 +226,11 @@ sub test__createUploadWorkspace {
         my $toFile = File::Spec->catfile( $targetDir, $obj->{'_fastqUploadUuid'}, "experiment.xml" );
         {
             ok(-f $fromFile && (-s $fromFile) > 0, "Found source experiment file");
-        }{
+        }
+        {
             ok(-f $toFile && (-s $toFile) > 0, "Found target experiment file after copy");
-        }{
+        }
+        {
             files_eq( $fromFile, $toFile, "experiment file copied ok");
         }
     }
@@ -237,9 +239,11 @@ sub test__createUploadWorkspace {
         my $toFile = File::Spec->catfile(   $obj->{'_fastqUploadDir'}, "run.xml" );
         {
             ok(-f $fromFile && (-s $fromFile) > 0, "Found source run file");
-        }{
+        }
+        {
             ok(-f $toFile && (-s $toFile) > 0, "Found target run file after copy");
-        }{
+        }
+        {
             files_eq( $fromFile, $toFile, "run file copied ok");
         }
     }
@@ -250,30 +254,32 @@ sub test__insertNewZipUploadRecord {
 
     # Object will be modified, so need local
     my $sampleId    = -19;
-    my $laneId      = -12;
     my $uploadId    = -21;
     my $metaDataDir = "t";
     my $uuidDir     = "Data";
+    my $status      = "zip_running";
 
-    my $objToModify = $CLASS->new( $OPT_HR );
-    $objToModify->{'_laneId'} = $laneId;
-    $objToModify->{'_sampleId'} = $sampleId;
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'uploadFastqBaseDir'} = $metaDataDir;
+    $obj->{'_sampleId'} = $sampleId;
+    $obj->{'_fastqUploadUuid'} = $uuidDir;
+    $obj->{'_fastqUploadDir'} = File::Spec->catdir( $metaDataDir, $uuidDir);
 
     my @dbEventsOk = ({
         'statement'   => qr/INSERT INTO upload.*/msi,
-        'bound_params' => [ $sampleId ],
+        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $status, $metaDataDir, $uuidDir],
         'results'  => [[ 'upload_id' ], [ $uploadId ]],
     });
     $MOCK_DBH->{'mock_session'} =
         DBD::Mock::Session->new( 'newUploadRecord', @dbEventsOk );
 
     {
-        my $got = $objToModify->_insertNewZipUploadRecord( $MOCK_DBH );
+        my $got = $obj->_insertNewZipUploadRecord( $MOCK_DBH, $status );
         my $want = 1;
         is( $got, $want, "Return 1 if inserted upload record to zip" );
     }
     {
-       my $got = $objToModify->{'_uploadId'};
+       my $got  = $obj->{'_fastqUploadId'};
        my $want = $uploadId;
        is( $got, $want, "Upload id stored in object" );
     }
@@ -340,6 +346,7 @@ sub test__getLaneToZip {
     my $sampleId = -19;
     my $laneId = -12;
     my $uploadId = -21;
+    my $status = 'zip_running';
 
     my $objToModify = $CLASS->new( $OPT_HR );
     $objToModify->{'_laneId'} = $laneId;
@@ -354,7 +361,7 @@ sub test__getLaneToZip {
         DBD::Mock::Session->new( 'newUploadRecord', @dbEventsOk );
 
     {
-        my $got = $objToModify->_insertNewZipUploadRecord( $MOCK_DBH );
+        my $got = $objToModify->_insertNewZipUploadRecord( $MOCK_DBH, $status );
         my $want = 1;
         is( $got, $want, "Return 1 if inserted upload record to zip" );
     }

@@ -531,7 +531,7 @@ sub _createUploadWorkspace {
     my $fromExperimentFilePath = File::Spec->catfile( $self->{'_bamUploadDir'},   "experiment.xml" );
     my $toExperimentFilePath   = File::Spec->catfile( $self->{'_fastqUploadDir'}, "experiment.xml" );
     eval {
-        cp($fromExperimentFilePath, $toExperimentFilePath);
+        cp( $fromExperimentFilePath, $toExperimentFilePath );
     };
     if ($@) {
         my $error = $@;
@@ -544,66 +544,80 @@ sub _createUploadWorkspace {
 
 =head2 _insertNewZipUploadRecord()
 
-  $self->_insertNewZipUploadRecord( $dbh )
+  $self->_insertNewZipUploadRecord( $dbh, $new status )
 
+Inserts a new upload record for the fastq upload being initiated. Takes as
+a parameter the status of this new upload record.
 
-Get sample to handle and mark as being handled using a transaction, so zipping
-can run in parallel.
-
-Internal method that takes no parmaeters. It returns 0 if no records exist to
-update, 1 if successeds. Dies on a bunch of database errors.
-
-Sets private data fields _uploadId, _laneId, _sampleId
+Either returns 1 for success, or sets 'error' and croaks with an error message.
 
 Inserts a new upload table record for CGHUB_FASTQ, for the same sample
 as an existing upload record for CGHUB, when the CGHUB record is for a live
 mapsplice upload and no CGHUB_FASTQ exists for that sample.
 
+Uses
+
+    'uploadFastqBaseDir' => From config, base for writing data to.
+    'verbose'            => If set, echo SQL and values set.
+    '_sampleId'          => The sampe this is used for.
+    '_fastqUploadUuid'   => The uuid for this samples fastq upload.
+
+Sets
+
+    '_fastqUploadId' => upload.upload_id for the new record.
+
+Side Effect
+
+    Inserts a new Upload record for CGHUB_FASTQ, not yet linked to a file
+    record, but with an existing meta-data directory defined.
+
+Errors
+
+    'zip_failed_db_insert_upload_fastq' => Insert of record failed
+    'zip_failed_fastq_upload_data'      => Failed to set upload_id value
+    
 =cut
 
 sub _insertNewZipUploadRecord {
     my $self = shift;
     my $dbh = shift;
     my $newUploadStatus = shift;
+    if (! $newUploadStatus) {
+        $self->{'error'} = 'no_status_param';
+        croak( "No status parameter specified." );
+    }
 
     # Setup SQL
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
     my $insertUploadSQL =
         "INSERT INTO upload ( sample_id, target, status, metadata_dir, cghub_analysis_id )
-         VALUES ( ?, '$sqlTargetForFastqUpload', ?, ?, ? )
+         VALUES ( ?, ?, ?, ?, ? )
          RETURNING upload_id";
 
     if ($self->{'verbose'}) {
         print ("SQL to insert new upload record for zip:\$insertUploadSQL\n");
     }
 
-    my $targetDir = File::Spec->catdir(
-        $self->{'_fastqUploadBaseDir'},
-        $self->{'_fastqUploadUuidDir'}
-    );
-    if (! -d  $targetDir) {
-        $self->{'error'} = "fastq_upload_dir_missing";
-        croak "Can't find the fastq upload dir: $targetDir\n";
-    }
     my $rowHR;
     eval {
         my $insertSTH = $dbh->prepare($insertUploadSQL);
         $insertSTH->execute(
             $self->{'_sampleId'},
+            $sqlTargetForFastqUpload,
             $newUploadStatus,
-            $self->{'_fastqUploadBaseDir'},
-            $self->{'_fastqUploadUuidDir'}
+            $self->{'uploadFastqBaseDir'},
+            $self->{'_fastqUploadUuid'}
         );
         $rowHR = $insertSTH->fetchrow_hashref();
         $insertSTH->finish();
     };
     if ($@) {
-        $self->{'error'} = 'fastq_upload_insert';
+        $self->{'error'} = 'db_insert_upload_fastq';
         croak "Insert of new upload failed: $@";
     } 
     if (! defined $rowHR) {
-        $self->{'error'} = 'fastq_upload_insert';
+        $self->{'error'} = 'db_insert_upload_fastq';
         croak "Failed to retireve the id of the upload record inserted. Maybe it failed to insert\n";
     }
 
@@ -615,6 +629,7 @@ sub _insertNewZipUploadRecord {
 
     if (! $self->{'_fastqUploadId'}) {
         $self->{'error'} = 'fastq_upload_data';
+        croak "Failed to set id of upload record inserted\n";
     }
 
     return 1;
