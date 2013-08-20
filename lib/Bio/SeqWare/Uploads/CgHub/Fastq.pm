@@ -280,7 +280,6 @@ the  input fastq). Updates upload record to zip_completed to indicate done.
 
 =cut
 
-
 sub doZip {
     my $self = shift;
     my $dbh = shift;
@@ -290,7 +289,8 @@ sub doZip {
         $self->_tagLaneToUpload($dbh, "zip_running");
         $self->_getFilestoZip( $dbh );
         $self->_zip( $dbh );
-        $self->_insertNewFile( $dbh );
+        $self->_insertFile( $dbh );
+        $self->_insertUploadFileRecord( $dbh );
         $self->_updateUploadStatus( $dbh, "zip_completed");
     };
     if ($@) {
@@ -323,7 +323,7 @@ sub _tagLaneToUpload {
 
         $self->_findNewLaneToZip( $dbh );
         $self->_createUploadWorkspace( $dbh );
-        $self->_insertNewZipUploadRecord( $dbh, $newUploadStatus);
+        $self->_insertZipUploadRecord( $dbh, $newUploadStatus);
         $dbh->commit()
     };
     if ($@) {
@@ -556,9 +556,9 @@ sub _createUploadWorkspace {
     return 1;
 }
 
-=head2 _insertNewZipUploadRecord()
+=head2 _insertZipUploadRecord()
 
-  $self->_insertNewZipUploadRecord( $dbh, $new status )
+  $self->_insertZipUploadRecord( $dbh, $new status )
 
 Inserts a new upload record for the fastq upload being initiated. Takes as
 a parameter the status of this new upload record.
@@ -592,7 +592,7 @@ Errors
     
 =cut
 
-sub _insertNewZipUploadRecord {
+sub _insertZipUploadRecord {
     my $self = shift;
     my $dbh = shift;
     my $newUploadStatus = shift;
@@ -710,21 +710,16 @@ sub _fastqFilesSqlSubSelect {
 
 =head2 _getFilesToZip()
 
-    my $fileSelectorHR = { 'workflowAccession' => 613863,
-                           'algorithm'         => 'FinalizeCasava' };
-    $self->_getFilesToZip( $dbh, $fileSelectorHR );
+    $self->_getFilesToZip( $dbh, $workflowAccession );
 
-File Selector prameter may not be sufficient for all needs, so currently only
-implemented for sure for FinalizeCasava. Returns 1 if success, 0 if can not
-find the specified record. If can not find the specified record, updates the
-relevant upload record to status = "error_zip_no-db-fastq-files". If does find
-the relevant 1 or 2 files, sets $self->{_fastqs}->[0] to
-{ filePath => ???, md5sum => ???}, and if there are 2 files, also sets [1].
+Identifies the fastq files that go with the uploaded bam file. If the
+$workflowAccession is given, that is assumed to be the workflow the
+fastq files come from. If this is not defined, it will first look at 613863
+(FinalizeCasava) and then 851553 (srf2fastq) and use the first ones it finds.
+Reports whatever riles it finds (one or two) without otherwise checking for
+single or paired ends.
 
-Sets $self->{'_workflowRunId'}, $self->{'_flowcell'}, $self->{'_laneIndex'},
-and $self->{'_barcode'} and checks to see if theses are the same for both
-fastqs. If not, sets the upload record status = "error_zip_mismatched_fastqs"
-and returns 0.
+
 
 Dies for a lot of database errors.
 
@@ -822,7 +817,7 @@ sub _getFilesToZip {
         );
     }
 
-    if (! $self->{'_workflowRunId'}            && $self->{'_flowcell'}
+    unless ($self->{'_workflowRunId'}            && $self->{'_flowcell'}
         && $self->{'_laneIndex'}               && $self->{'_fastqs'}->[0]->{'filePath'}
         && $self->{'_fastqs'}->[0]->{'md5sum'} && $self->{'_fastqs'}->[0]->{'processingId'}
     ) {
@@ -848,8 +843,8 @@ sub _getFilesToZip {
             );
         }
 
-        unless (   $row2HR->{'_workflowRunId'}          && $row2HR->{'_flowcell'}
-                && $row2HR->{'_laneIndex'}              && $self->{'_fastqs'}->[1]->{'filePath'}
+        unless (   $row2HR->{'workflow_run_id'}          && $row2HR->{'flowcell'}
+                && $row2HR->{'lane_index'}              && $self->{'_fastqs'}->[1]->{'filePath'}
                 && $self->{'_fastqs'}->[1]->{'md5sum'}  && $self->{'_fastqs'}->[1]->{'processingId'}
         ) {
             $self->{'error'} = 'fastq_file_2_data';
@@ -931,14 +926,14 @@ sub _updateUploadStatus {
     }
 }
 
-sub _insertNewFile {
+sub _insertFile {
     my $self = shift;
     my $dbh = shift;
 
     eval {
         $dbh->begin_work();
-        $self->_insertNewFileRecord( $dbh );
-        $self->_insertNewProcessingFileRecords( $dbh );
+        $self->_insertFileRecord( $dbh );
+        $self->_insertProcessingFileRecords( $dbh );
         $dbh->commit();
     };
     if ($@) {
@@ -947,7 +942,7 @@ sub _insertNewFile {
             $dbh->rollback();
         };
         if ($@) {
-            $error .= " ALSO: error rolling back insertNewFile transaction: $@\n";
+            $error .= " ALSO: error rolling back insertFile transaction: $@\n";
         }
         unless ($self->{'error'}) {
             $self->{'error'} = 'insert_file_transaction';
@@ -958,17 +953,17 @@ sub _insertNewFile {
     return 1;
 }
 
-sub _insertNewFileRecord {
+sub _insertFileRecord {
     my $self = shift;
     my $dbh = shift;
 
     my $zipFileMetaType = "application/tar-gz";
     my $zipFileType = "fastq-by-end-tar-bundled-gz-compressed";
-    my $zipFileDescription = "fastq files from one sequencing run, tarred and gzipped, one file per end";
+    my $zipFileDescription = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
 
     my $newFileSQL =
-        "INSERT INTO file (file_path, meta_type, type, description, md5sum )"
-     . " VALUES ( ?, '$zipFileMetaType', '$zipFileType', '$zipFileDescription', ? )"
+        "INSERT INTO file ( file_path, meta_type, type, description, md5sum )"
+     . " VALUES ( ?, ?, ?, ?, ? )"
      . " RETURNING file_id";
 
     if ($self->{'verbose'}) {
@@ -978,7 +973,12 @@ sub _insertNewFileRecord {
     my $rowHR;
     eval {
         my $newFileSTH = $dbh->prepare($newFileSQL);
-        $newFileSTH->execute( $self->{'_zipFile'},  $self->{'_zipFileMd5'} );
+        $newFileSTH->execute(
+            $self->{'_zipFile'},
+            $zipFileMetaType,
+            $zipFileType,
+            $zipFileDescription,
+            $self->{'_zipFileMd5'} );
         $rowHR = $newFileSTH->fetchrow_hashref();
         $newFileSTH->finish();
     };
@@ -1044,6 +1044,15 @@ sub _insertProcessingFileRecords {
         croak "Processing files insert failed: $error\n";
     }
 
+    return 1;
+}
+
+=head2 _insertUploadFileRecord()
+
+=cut
+
+sub _insertUploadFileRecord {
+
 }
 
 =head2 _zip()
@@ -1064,29 +1073,15 @@ sub _zip() {
              croak "Not on file system: $file\n";
          }
          if (( -s $file) < $self->{'minFastqSize'}) {
-             $self->{'eerror'} = "fastq-too-small";
-             croak "File size of " . -s $file . " is less than min of $self->{'minFastqSize'} for file $file\n";
+             $self->{'error'} = "fastq_too_small";
+             croak "File size of " . (-s $file) . " is less than min of $self->{'minFastqSize'} for file $file\n";
          }
          my $md5result = `md5sum $file`;
          $md5result = (split(/ /, $md5result))[0];
          if (! defined $md5result || $md5result ne $fileHR->{'md5sum'}) {
-             $self->{'error'} = "fastq-md5-mismatch";
+             $self->{'error'} = "fastq_md5_mismatch";
              croak "Current md5 of $md5result does not match original md5 of $fileHR->{'md5sum'} for file $file\n";
          }
-         my $wcResult = `wc -l $file`;
-         $wcResult =~ /^\s*(\d+)/;
-         $wcResult = $1;
-         if ( $wcResult % 4 != 0 ) {
-             $self->{'eerror'} = "fastq-mod-4-check";
-             croak "Number of lines not a multiple of 4 for file $file\n";
-         }
-         $fileHR->{'lineCount'} = $wcResult;
-    }
-    if (    defined $self->{'_fastqs'}->[1]
-         && $self->{'_fastqs'}->[0]->{'lineCount'} != $self->{'_fastqs'}->[1]->{'lineCount'}
-    ) {
-         $self->{'error'} = "fastq-line-count-mismatch";
-             croak "Number of lines not the same in files \"$self->{'_fastqs'}->[0]->{filePath}\" and \"$self->{'_fastqs'}->[0]->{filePath}\"\n";
     }
 
     # Setup target directory
@@ -1094,10 +1089,10 @@ sub _zip() {
         $self->{'dataRoot'}, $self->{'_flowcell'}, $self->{'myName'}
     );
     if (! -d $zipFileDir) {
-        my $ok = mkpath($zipFileDir, { mode => 0775 });
+        my $ok = make_path($zipFileDir, { mode => 0775 });
         if (! $ok) {
             $self->{'error'} = "creating_data_output_dir";
-            croak "Error creating directory to pu zipFile info in: $zipFileDir - $!\n";
+            croak "Error creating directory to put zipFile info in: $zipFileDir - $!\n";
         }
     }
     my $zipFile = $self->{'_flowcell'} . "_" . ($self->{'_laneIndex'} + 1);

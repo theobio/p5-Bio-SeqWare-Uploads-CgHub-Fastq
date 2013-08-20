@@ -17,60 +17,50 @@ use DBD::Mock;
 use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test Modules
 use Test::Exception;
 use Test::File::Contents;
-use Test::More 'tests' => 9;   # Run this many Test::More compliant subtests.
+use Test::More 'tests' => 11;   # Run this many Test::More compliant subtests.
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
+my $TEMP_DIR = File::Temp->newdir();  # Auto-delete when out of scope
 
 #
 # Set up fastq files to test on
 #
 
 my $FASTQ1 = File::Spec->catfile( $DATA_DIR, "paired_end_one.fastq");
-my $FASTQ1_MD5 = '1c93d2e4c1c0b65e59c8a8923c7d2b7d';
+my $FASTQ1_MD5 = '83a37a8cb75d0aa656a4104b2c77a3f6';
 
 my $FASTQ2 = File::Spec->catfile( $DATA_DIR, "paired_end_two.fastq");
-my $FASTQ2_MD5 = 'a285bcffb5dcf00433f113c191b7829b';
-
-my $FASTQ_BAD = File::Spec->catfile( $DATA_DIR, "bad_truncated.fastq");
-my $FASTQ_BAD_MD5 = '7643c31b47fa345c0ebc88a90a1315d0';
+my $FASTQ2_MD5 = 'a782ba63c137eda8b0094f34fecf68b8';
 
 my $FASTQ_MISMATCH = File::Spec->catfile( $DATA_DIR, "single_end.fastq");
-my $FASTQ_MISMATCH_MD5 = '9e758d73df84c21d1d23ef985f07f8f8';
+my $FASTQ_MISMATCH_MD5 = '23487060edd0e7121daab3f03177828f';
 
 #
-# Set up object
+# Set up data to create objects
 #
-my $OBJ;
+
 my $CONFIG = Bio::SeqWare::Config->new();
 my $OPT = $CONFIG->getKnown();
 my $OPT_HR = { %$OPT,
     'runMode' => 'alL',
+    'minFastqSize' => 10,
+    'dataRoot'     => $TEMP_DIR,
+    'myName'       => 'DELETE_ME-upload-cghub-fastq_0.0.1',
 };
-$OBJ = $CLASS->new( $OPT_HR );
 
-$OBJ->{'minFastqSize'} = 10;
-$OBJ->{'rerun'}        = 1;
-$OBJ->{'_flowcell'}    = '130702_UNC9-SN296_0380_BC24VKACXX';
-$OBJ->{'_laneIndex'}   = '1';
-$OBJ->{'_barcode'}     = 'GATCAG';
-$OBJ->{'_uploadId'}    = -21;
-$OBJ->{'_fastqs'}      = [
-    {
-        'filePath' => $FASTQ1,
-        'md5sum'   => $FASTQ1_MD5,
-    }, {
-        'filePath' => $FASTQ2,
-        'md5sum'   => $FASTQ2_MD5,
-    },
-];
+my $FLOWCELL   = '130702_UNC9-SN296_0380_BC24VKACXX';
+my $LANE_INDEX = '1';
+my $BARCODE    = 'GATCAG';
+my $BASE_NAME = $FLOWCELL . "_" . ($LANE_INDEX + 1) . "_" . $BARCODE;
 
 
-my $EXPECT_OUTFILE = File::Spec->catdir(
-     $OBJ->{'dataRoot'}, $OBJ->{'_flowcell'}, $OBJ->{'myName'}
+
+my $EXPECTED_OUT_DIR = File::Spec->catdir(
+     $OPT_HR->{'dataRoot'}, $FLOWCELL, $OPT_HR->{'myName'}
 );
-$EXPECT_OUTFILE = File::Spec->catfile( $EXPECT_OUTFILE,
-     $OBJ->{'_flowcell'} . "_" . ($OBJ->{'_laneIndex'} + 1) . "_" . $OBJ->{'_barcode'} . ".tar.gz"
+my $EXPECTED_OUT_FILE = File::Spec->catfile(
+    $EXPECTED_OUT_DIR, $BASE_NAME . ".tar.gz"
 );
 
 my $MOCK_DBH = DBI->connect(
@@ -80,17 +70,18 @@ my $MOCK_DBH = DBI->connect(
     { 'RaiseError' => 1, 'PrintError' => 0 },
 );
 
-my $TEMP_DIR = File::Temp->newdir();  # Auto-delete when out of scope
 
 subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
 subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
-subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
+subtest( '_insertZipUploadRecord()' => \&test__insertZipUploadRecord );
 subtest( '_tagLaneToUpload()'          => \&test__tagLaneToUpload );
 subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
 subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
 subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
 subtest( '_zip()'                      => \&test__zip );
-subtest( '_insertNewFileRecord()'      => \&test_insertNewFileRecord);
+subtest( '_insertFileRecord()'      => \&test__insertFileRecord);
+subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
+subtest( '_insertFile()'               => \&test__insertFile);
 
 #
 # Subtests
@@ -263,7 +254,7 @@ sub test__createUploadWorkspace {
     }
 }
 
-sub test__insertNewZipUploadRecord {
+sub test__insertZipUploadRecord {
     plan( tests => 2 );
 
     # Object will be modified, so need local
@@ -288,7 +279,7 @@ sub test__insertNewZipUploadRecord {
         DBD::Mock::Session->new( 'newUploadRecord', @dbEventsOk );
 
     {
-        my $got = $obj->_insertNewZipUploadRecord( $MOCK_DBH, $status );
+        my $got = $obj->_insertZipUploadRecord( $MOCK_DBH, $status );
         my $want = 1;
         is( $got, $want, "Return 1 if inserted upload record to zip" );
     }
@@ -412,15 +403,13 @@ sub test__tagLaneToUpload {
 }
 
 sub test__getFilesToZip {
-    plan( tests => 50 );
+    plan( tests => 52 );
     my $sampleId = -19;
     my $laneId = -12;
     my $uploadId = -21;
     my $fastqWorkflowRunId = -2315;
-    my $flowcell = $OBJ->{'_flowcell'};
-    my $laneIndex = $OBJ->{'_laneIndex'};
-    my $barcode = $OBJ->{'_barcode'};
-    my $processingId = -20;
+    my $processingId1 = -20;
+    my $processingId2 = -2020;
     my $fastq1 = $FASTQ1;
     my $fastq2 = $FASTQ2;
     my $fileId1 = -6;
@@ -438,28 +427,28 @@ sub test__getFilesToZip {
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
                 [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
             ]
         });
 
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'one613863', @dbEvents );
 
-        my $objToModify = $CLASS->new( $OPT_HR );
-        $objToModify->{'_laneId'} = $laneId;
-        $objToModify->{'_sampleId'} = $sampleId;
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_laneId'} = $laneId;
+        $obj->{'_sampleId'} = $sampleId;
         {
-            is( $objToModify->_getFilesToZip( $MOCK_DBH ), 1, "File one613863 retrieval ok." );
-            is( $objToModify->{'_workflowAccession'}, $wf1, "ok one613863 _workflowAccession" );
-            is( $objToModify->{'_fastqProcessingId'}, $processingId, "ok one613863 _flowcell" );
-            is( $objToModify->{'_workflowRunId'}, $fastqWorkflowRunId, "ok one613863 _flowcell" );
-            is( $objToModify->{'_flowcell'}, $flowcell, "ok one613863 _flowcell" );
-            is( $objToModify->{'_laneIndex'}, $laneIndex, "ok one613863 _laneIndex" );
-            is( $objToModify->{'_barcode'}, $barcode, "ok one613863 _barcode" );
+            is( $obj->_getFilesToZip( $MOCK_DBH ), 1, "File one613863 retrieval ok." );
+            is( $obj->{'_workflowAccession'}, $wf1, "ok one613863 _workflowAccession" );
+            is( $obj->{'_workflowRunId'}, $fastqWorkflowRunId, "ok one613863 _flowcell" );
+            is( $obj->{'_flowcell'}, $FLOWCELL, "ok one613863 _flowcell" );
+            is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok one613863 _laneIndex" );
+            is( $obj->{'_barcode'}, $BARCODE, "ok one613863 _barcode" );
 
-            is( $objToModify->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one613863 filePath0" );
-            is( $objToModify->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one613863 md5sum0" );
-            is( $objToModify->{'_fastqs'}->[1], undef );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one613863 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one613863 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one613863 processingId0" );
+            is( $obj->{'_fastqs'}->[1], undef );
         }
     }{
         my @dbEvents = ({
@@ -469,31 +458,32 @@ sub test__getFilesToZip {
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
                 [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
                 [ $fastq2, $fastq2Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
             ]
         });
 
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'two613863', @dbEvents );
 
-        my $objToModify = $CLASS->new( $OPT_HR );
-        $objToModify->{'_laneId'} = $laneId;
-        $objToModify->{'_sampleId'} = $sampleId;
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_laneId'} = $laneId;
+        $obj->{'_sampleId'} = $sampleId;
         {
-            is( $objToModify->_getFilesToZip( $MOCK_DBH ), 1, "File two613863 retrieval ok." );
-            is( $objToModify->{'_workflowAccession'}, $wf1, "ok two613863 _workflowAccession" );
-            is( $objToModify->{'_fastqProcessingId'}, $processingId, "ok two613863 _flowcell" );
-            is( $objToModify->{'_workflowRunId'}, $fastqWorkflowRunId, "ok two613863 _flowcell" );
-            is( $objToModify->{'_flowcell'}, $flowcell, "ok two613863 _flowcell" );
-            is( $objToModify->{'_laneIndex'}, $laneIndex, "ok two613863 _laneIndex" );
-            is( $objToModify->{'_barcode'}, $barcode, "ok two613863 _barcode" );
+            is( $obj->_getFilesToZip( $MOCK_DBH ), 1, "File two613863 retrieval ok." );
+            is( $obj->{'_workflowAccession'}, $wf1, "ok two613863 _workflowAccession" );
+            is( $obj->{'_workflowRunId'}, $fastqWorkflowRunId, "ok two613863 _flowcell" );
+            is( $obj->{'_flowcell'}, $FLOWCELL, "ok two613863 _flowcell" );
+            is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok two613863 _laneIndex" );
+            is( $obj->{'_barcode'}, $BARCODE, "ok two613863 _barcode" );
 
-            is( $objToModify->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two613863 filePath0" );
-            is( $objToModify->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two613863 md5sum0" );
-            is( $objToModify->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two613863 filePath0" );
-            is( $objToModify->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two613863 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two613863 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two613863 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok two613863 processingId0" );
+            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two613863 filePath1" );
+            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two613863 md5sum2" );
+            is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two613863 processingId0" );
         }
     }{
         my @dbEvents = ({
@@ -508,28 +498,28 @@ sub test__getFilesToZip {
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
                 [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
             ]
         });
 
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'one851553', @dbEvents );
 
-        my $objToModify = $CLASS->new( $OPT_HR );
-        $objToModify->{'_laneId'} = $laneId;
-        $objToModify->{'_sampleId'} = $sampleId;
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_laneId'} = $laneId;
+        $obj->{'_sampleId'} = $sampleId;
         {
-            is( $objToModify->_getFilesToZip( $MOCK_DBH ), 1, "File one851553 retrieval ok." );
-            is( $objToModify->{'_workflowAccession'}, $wf2, "ok one851553 _workflowAccession" );
-            is( $objToModify->{'_fastqProcessingId'}, $processingId, "ok one851553 _flowcell" );
-            is( $objToModify->{'_workflowRunId'}, $fastqWorkflowRunId, "ok one851553 _flowcell" );
-            is( $objToModify->{'_flowcell'}, $flowcell, "ok one851553 _flowcell" );
-            is( $objToModify->{'_laneIndex'}, $laneIndex, "ok one851553 _laneIndex" );
-            is( $objToModify->{'_barcode'}, $barcode, "ok one851553 _barcode" );
+            is( $obj->_getFilesToZip( $MOCK_DBH ), 1, "File one851553 retrieval ok." );
+            is( $obj->{'_workflowAccession'}, $wf2, "ok one851553 _workflowAccession" );
+            is( $obj->{'_workflowRunId'}, $fastqWorkflowRunId, "ok one851553 _flowcell" );
+            is( $obj->{'_flowcell'}, $FLOWCELL, "ok one851553 _flowcell" );
+            is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok one851553 _laneIndex" );
+            is( $obj->{'_barcode'}, $BARCODE, "ok one851553 _barcode" );
 
-            is( $objToModify->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one851553 filePath0" );
-            is( $objToModify->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one851553 md5sum0" );
-            is( $objToModify->{'_fastqs'}->[1], undef );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one851553 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one851553 processingId0" );
+            is( $obj->{'_fastqs'}->[1], undef );
         }
     }{
         my @dbEvents = ({
@@ -544,31 +534,32 @@ sub test__getFilesToZip {
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
                 [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
                 [ $fastq2, $fastq2Md5, $fastqWorkflowRunId,
-                  $flowcell,  $laneIndex, $barcode, $processingId ],
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
             ]
         });
 
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'two851553', @dbEvents );
 
-        my $objToModify = $CLASS->new( $OPT_HR );
-        $objToModify->{'_laneId'} = $laneId;
-        $objToModify->{'_sampleId'} = $sampleId;
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_laneId'} = $laneId;
+        $obj->{'_sampleId'} = $sampleId;
         {
-            is( $objToModify->_getFilesToZip( $MOCK_DBH ), 1, "File two851553 retrieval ok." );
-            is( $objToModify->{'_workflowAccession'}, $wf2, "ok two851553 _workflowAccession" );
-            is( $objToModify->{'_fastqProcessingId'}, $processingId, "ok two851553 _flowcell" );
-            is( $objToModify->{'_workflowRunId'}, $fastqWorkflowRunId, "ok two851553 _flowcell" );
-            is( $objToModify->{'_flowcell'}, $flowcell, "ok two851553 _flowcell" );
-            is( $objToModify->{'_laneIndex'}, $laneIndex, "ok two851553 _laneIndex" );
-            is( $objToModify->{'_barcode'}, $barcode, "ok two851553 _barcode" );
+            is( $obj->_getFilesToZip( $MOCK_DBH ), 1, "File two851553 retrieval ok." );
+            is( $obj->{'_workflowAccession'}, $wf2, "ok two851553 _workflowAccession" );
+            is( $obj->{'_workflowRunId'}, $fastqWorkflowRunId, "ok two851553 _flowcell" );
+            is( $obj->{'_flowcell'}, $FLOWCELL, "ok two851553 _flowcell" );
+            is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok two851553 _laneIndex" );
+            is( $obj->{'_barcode'}, $BARCODE, "ok two851553 _barcode" );
 
-            is( $objToModify->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two851553 filePath0" );
-            is( $objToModify->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two851553 md5sum0" );
-            is( $objToModify->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two851553 filePath0" );
-            is( $objToModify->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two851553 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok two851553 processingId0" );
+            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two851553 filePath0" );
+            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two851553 processingId1" );
         }
     }{
         my $newStatus = "error_zip_no-db-fastq-files";
@@ -587,28 +578,30 @@ sub test__getFilesToZip {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( 'noFiles', @dbEvents );
 
-        my $objToModify = $CLASS->new( $OPT_HR );
-        $objToModify->{'_laneId'} = $laneId;
-        $objToModify->{'_sampleId'} = $sampleId;
-        $objToModify->{'_uploadId'} = $uploadId;
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_laneId'} = $laneId;
+        $obj->{'_sampleId'} = $sampleId;
+        $obj->{'_uploadId'} = $uploadId;
+        eval {
+            $obj->_getFilesToZip( $MOCK_DBH );
+        };
         {
-            is( $objToModify->_getFilesToZip( $MOCK_DBH ), 0, "File noFiles retrieval ok." );
-            is( $objToModify->{'_workflowAccession'}, undef, "ok noFiles _workflowAccession" );
-            is( $objToModify->{'_fastqProcessingId'}, undef, "ok noFiles _flowcell" );
-            is( $objToModify->{'_workflowRunId'}, undef, "ok noFiles _flowcell" );
-            is( $objToModify->{'_flowcell'}, undef, "ok noFiles _flowcell" );
-            is( $objToModify->{'_laneIndex'}, undef, "ok noFiles _laneIndex" );
-            is( $objToModify->{'_barcode'}, undef, "ok noFiles _barcode" );
-
-            is( $objToModify->{'_fastqs'}, undef, "ok noFiles _fastqs" );
+            like( $@, qr/Error looking up fastq files\: Can't find any fastq files/, "No file is error.");
+            is( $obj->{'error'}, "no_fastq_files", "No file error tag");
+            is( $obj->{'_workflowAccession'}, undef, "ok noFiles _workflowAccession" );
+            is( $obj->{'_workflowRunId'}, undef, "ok noFiles _flowcell" );
+            is( $obj->{'_flowcell'}, undef, "ok noFiles _flowcell" );
+            is( $obj->{'_laneIndex'}, undef, "ok noFiles _laneIndex" );
+            is( $obj->{'_barcode'}, undef, "ok noFiles _barcode" );
+            is( $obj->{'_fastqs'}, undef, "ok noFiles _fastqs" );
         }
     }
 
 }
 
 sub test__zip {
-    plan( tests => 21 );
-    
+    plan( tests => 23 );
+
     my $oneFastq = [{
         'filePath' => $FASTQ1,
         'md5sum'   => $FASTQ1_MD5,
@@ -641,88 +634,96 @@ sub test__zip {
 
     {
          ok( $obj1File->_zip(), "Zip seemed to work for one fastq");
-         ok( $obj2File->_zip(), "Zip seemed to work for two fastq");
+         ok( (-d $EXPECTED_OUT_DIR),  "Output dir created");
+         ok( (-f $EXPECTED_OUT_FILE), "Created zip file");
+         ok( `tar -xzf $EXPECTED_OUT_FILE -C $TEMP_DIR; ls -al $TEMP_DIR` );
+         my $unzippedFile = File::Spec->catfile( $TEMP_DIR , "paired_end_one.fastq" );
+         files_eq( $FASTQ1, $unzippedFile, "After zip + unzip, single end fastq 1 is the same" );
     }
     {
-         ok( (-f $EXPECT_OUTFILE), "Created zip file");
+         ok( $obj2File->_zip(), "Zip seemed to work for two fastq");
+         ok( `tar -xzf $EXPECTED_OUT_FILE -C $TEMP_DIR; ls -al $TEMP_DIR` );
+         my $unzippedFile1 = File::Spec->catfile( $TEMP_DIR , "paired_end_one.fastq" );
+         my $unzippedFile2 = File::Spec->catfile( $TEMP_DIR , "paired_end_two.fastq" );
+         files_eq( $FASTQ1, $unzippedFile1, "After zip + unzip, paired end fastq 1 is the same" );
+         files_eq( $FASTQ2, $unzippedFile2, "After zip + unzip, paired end fastq 2 is the same" );
     }
     {
          my $old = $obj1File->{'_fastqs'}->[0]->{'filePath'};
          $obj1File->{'_fastqs'}->[0]->{'filePath'} = "NOsuchPATHiHOPE";
-         is( $obj1File->_zip(), 0, "Zip1 fail with bad file 0 path");
-         is( $obj1File->{'_error'}, "error_zip_fastq-not-found", "Error message, zip1 fail with bad file 0 path");
-         $obj1File->{'_error'} = undef;
+         eval{
+             $obj1File->_zip();
+         };
+         like( $@, qr/Not on file system\: /, "Dies if no se fastq file");
+         is( $obj1File->{'error'}, "fastq_not_found", "Error message, zip1 fail with bad file 0 path");
+         $obj1File->{'error'} = undef;
          $obj1File->{'_fastqs'}->[0]->{'filePath'} = $old;
     }
     {
          my $old = $obj2File->{'_fastqs'}->[0]->{'filePath'};
          $obj2File->{'_fastqs'}->[0]->{'filePath'} = "NOsuchPATHiHOPE";
-         is( $obj2File->_zip(), 0, "Zip2 fail with bad file 0 path");
-         is( $obj2File->{'_error'}, "error_zip_fastq-not-found", "Error message, zip2 fail with bad file 0 path");
-         $obj2File->{'_error'} = undef;
+         eval{
+             $obj2File->_zip();
+         };
+         like( $@, qr/Not on file system\: /, "Dies if no pe 1 fastq file");
+         is( $obj2File->{'error'}, "fastq_not_found", "Error message, zip2 fail with bad file 0 path");
+         $obj2File->{'error'} = undef;
          $obj2File->{'_fastqs'}->[0]->{'filePath'} = $old;
     }
     {
          my $old = $obj2File->{'_fastqs'}->[1]->{'filePath'};
          $obj2File->{'_fastqs'}->[1]->{'filePath'} = "NOsuchPATHiHOPE";
-         is( $obj2File->_zip(), 0, "Zip2 fail with bad file 1 path");
-         is( $obj2File->{'_error'}, "error_zip_fastq-not-found", "Error message, zip2 fail with bad file 1 path");
-         $obj2File->{'_error'} = undef;
+         eval{
+             $obj2File->_zip();
+         };
+         like( $@, qr/Not on file system\: /, "Dies if no pe 2 fastq file");
+         is( $obj2File->{'error'}, "fastq_not_found", "Error message, zip2 fail with bad file 1 path");
+         $obj2File->{'error'} = undef;
          $obj2File->{'_fastqs'}->[1]->{'filePath'} = $old;
     }
     {
          my $old = $obj1File->{'_fastqs'}->[0]->{'md5sum'};
          $obj1File->{'_fastqs'}->[0]->{'md5sum'} = "123";
-         is( $obj1File->_zip(), 0, "Zip1 fail with bad file 0 md5sum");
-         is( $obj1File->{'_error'}, "error_zip_fastq-md5-failed", "Error message, zip1 fail with bad file 0 md5sum");
-         $obj1File->{'_error'} = undef;
+         eval{
+             $obj1File->_zip();
+         };
+         like( $@, qr/Current md5 of /, "Dies if bad se fastq md5 sum");
+         is( $obj1File->{'error'}, "fastq_md5_mismatch", "Error message, zip1 fail with bad file 0 md5sum");
+         $obj1File->{'error'} = undef;
          $obj1File->{'_fastqs'}->[0]->{'md5sum'} = $old;
     }
     {
          my $old = $obj2File->{'_fastqs'}->[0]->{'md5sum'};
          $obj2File->{'_fastqs'}->[0]->{'md5sum'} = "123";
-         is( $obj2File->_zip(), 0, "Zip2 fail with bad file 0 md5sum");
-         is( $obj2File->{'_error'}, "error_zip_fastq-md5-failed", "Error message, zip2 fail with bad file 0 md5sum");
-         $obj2File->{'_error'} = undef;
+         eval{
+             $obj2File->_zip();
+         };
+         like( $@, qr/Current md5 of /, "Dies if bad pe 1 fastq md5 sum");
+         is( $obj2File->{'error'}, "fastq_md5_mismatch", "Error message, zip2 fail with bad file 0 md5sum");
+         $obj2File->{'error'} = undef;
          $obj2File->{'_fastqs'}->[0]->{'md5sum'} = $old;
     }
     {
          my $old = $obj2File->{'_fastqs'}->[1]->{'md5sum'};
          $obj2File->{'_fastqs'}->[1]->{'md5sum'} = "123";
-         is( $obj2File->_zip(), 0, "Zip2 fail with bad file 1 md5sum");
-         is( $obj2File->{'_error'}, "error_zip_fastq-md5-failed", "Error message, zip2 fail with bad file 1 md5sum");
-         $obj2File->{'_error'} = undef;
+         eval{
+             $obj2File->_zip();
+         };
+         like( $@, qr/Current md5 of /, "Dies if bad pe 2 fastq md5 sum");
+         is( $obj2File->{'error'}, "fastq_md5_mismatch", "Error message, zip2 fail with bad file 1 md5sum");
+         $obj2File->{'error'} = undef;
          $obj2File->{'_fastqs'}->[1]->{'md5sum'} = $old;
     }
     {
          my $old = $obj2File->{'minFastqSize'};
          $obj2File->{'minFastqSize'} = 1000000;
-         is( $obj2File->_zip(), 0, "Zip fail with to small fastq file");
-         is( $obj2File->{'_error'}, "error_zip_fastq-too-small", "Error message, Zip fail with to small fastq file");
-         $obj2File->{'_error'} = undef;
+         eval{
+             $obj2File->_zip();
+         };
+         like( $@, qr/File size of /, "Dies if bad pe 1 fastq size too small");
+         is( $obj2File->{'error'}, "fastq_too_small", "Error message, Zip fail with to small fastq file");
+         $obj2File->{'error'} = undef;
          $obj2File->{'minFastqSize'} = $old;
-    }
-    {
-         my $old1       = $obj2File->{'_fastqs'}->[1]->{'filePath'};
-         my $oldmd5sum2 = $obj2File->{'_fastqs'}->[1]->{'md5sum'};
-         $obj2File->{'_fastqs'}->[1]->{'filePath'} = $FASTQ_BAD;
-         $obj2File->{'_fastqs'}->[1]->{'md5sum'}   = $FASTQ_BAD_MD5;
-         is( $obj2File->_zip(), 0, "Zip2 fail with bad file wc count");
-         is( $obj2File->{'_error'}, "error_zip_fastq-not-lines-mod-4", "Error message, Zip2 fail with bad file wc count");
-         $obj2File->{'_error'} = undef;
-         $obj2File->{'_fastqs'}->[1]->{'filePath'} = $old1;
-         $obj2File->{'_fastqs'}->[1]->{'md5sum'} = $oldmd5sum2;
-    }
-    {
-         my $old1       = $obj2File->{'_fastqs'}->[1]->{'filePath'};
-         my $oldmd5sum2 = $obj2File->{'_fastqs'}->[1]->{'md5sum'};
-         $obj2File->{'_fastqs'}->[1]->{'filePath'} = $FASTQ_MISMATCH;
-         $obj2File->{'_fastqs'}->[1]->{'md5sum'}   = $FASTQ_MISMATCH_MD5;
-         is( $obj2File->_zip(), 0, "Zip2 fail with mismatched fastq line counts");
-         is( $obj2File->{'_error'}, "error_zip_fastq-mismatched-line-count", "Error message, Zip2 fail with mismatched fastq line counts");
-         $obj2File->{'_error'} = undef;
-         $obj2File->{'_fastqs'}->[1]->{'filePath'} = $old1;
-         $obj2File->{'_fastqs'}->[1]->{'md5sum'} = $oldmd5sum2;
     }
 }
 
@@ -731,57 +732,116 @@ sub test__UpdateUploadStatus {
     plan ( tests => 1 );
 
     my $newStatus  = 'test_ignore_not-real-status';
-    my @dbSesssion = makeUploadDbEvents($newStatus, $OBJ->{'_uploadId'});
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_uploadId'} = -21;
+
+    my @dbSesssion = makeUploadDbEvents($newStatus, $obj->{'_uploadId'});
     $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( $newStatus, @dbSesssion );
     {
         my $got;
         lives_ok {
-             $got = $OBJ->_updateUploadStatus( $MOCK_DBH, $newStatus )
+             $got = $obj->_updateUploadStatus( $MOCK_DBH, $newStatus )
         }, "DB session worked.";
     }
 
 }
 
-sub test_insertNewFileRecord {
+sub test__insertFileRecord {
 
+    plan ( tests => 2 );
+
+    my $type  = 'fastq-by-end-tar-bundled-gz-compressed';
+    my $metaType  = 'application/tar-gz';
+    my $description = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
+    my $fileId = -6;
+    my $fakeMd5 = "bad1";
+
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
+        'statement'    => qr/INSERT INTO file.*/msi,
+        'bound_params' => [ $EXPECTED_OUT_FILE, $metaType, $type, $description, $fakeMd5 ],
+        'results'  => [[ 'file_id' ], [ $fileId ]],
+    } ));
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_zipFile'}    = $EXPECTED_OUT_FILE;
+    $obj->{'_zipFileMd5'} = $fakeMd5;
+
+    {
+        is( 1, $obj->_insertFileRecord( $MOCK_DBH ), "Insert file record" );
+        is( $fileId, $obj->{'_zipFileId'}, "File ID set" );
+    }
+}
+
+sub test__insertProcessingFileRecord {
+    plan ( tests => 1 );
+
+    my $fileId = -6;
+    my $processingId1 = -20;
+    my $processingId2 = -2020;
+
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
+        'statement'    => qr/INSERT INTO processing_files.*/msi,
+        'bound_params' => [ $processingId1, $fileId ],
+        'results'  => [ [ 'rows' ], [] ],
+    }, {
+        'statement'    => qr/INSERT INTO processing_files.*/msi,
+        'bound_params' => [ $processingId2, $fileId ],
+        'results'  => [ [ 'rows' ], [] ],
+    } ));
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_zipFileId'} = "-6";
+    $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
+    $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
+
+
+    {
+        is( 1, $obj->_insertProcessingFileRecords( $MOCK_DBH ), "Insert processingfile records" );
+    }
+}
+
+sub test__insertFile {
     plan ( tests => 1 );
 
     my $type  = 'fastq-by-end-tar-bundled-gz-compressed';
     my $metaType  = 'application/tar-gz';
-    my $description = "fastq files, tarred and gzipped, one file per end.";
-    my $zipFile = $EXPECT_OUTFILE;
-    my $zipFileMd5 = 'f586508aaae41811e1ed491f762442d9';
+    my $description = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
+
+    my $fakeMd5 = 'f586508aaae41811e1ed491f762442d9';
     my $fileId = -6;
-    my $processingId = -20;
+    my $processingId1 = -20;
+    my $processingId2 = -2020;
 
     $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
         'statement'    => qr/INSERT INTO file.*/msi,
-        'bound_params' => [ $zipFile, $zipFileMd5 ],
+        'bound_params' => [ $EXPECTED_OUT_FILE, $metaType, $type, $description, $fakeMd5 ],
         'results'  => [[ 'file_id' ], [ $fileId ]],
     }, {
         'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId, $fileId ],
+        'bound_params' => [ $processingId1, $fileId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+        'statement'    => qr/INSERT INTO processing_file.*/msi,
+        'bound_params' => [ $processingId2, $fileId ],
         'results'  => [[ 'rows' ], []],
     }, {
        'statement' => 'COMMIT',
         'results'  => [[]],
     } ));
 
-    my $uploaderObj = $CLASS->new( $OPT_HR );
-    $uploaderObj->{'_zipFileMd5'} = $zipFileMd5;
-    $uploaderObj->{'_zipFile'} = $zipFile;
-    $uploaderObj->{'_fastqProcessingId'} = $processingId;
-    $uploaderObj->{'_zipFileId'} = $fileId; # Set during run, preset to allow testing
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_zipFile'}    = $EXPECTED_OUT_FILE;
+    $obj->{'_zipFileMd5'} = $fakeMd5;
+    $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
+    $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
 
     {
-        my $got;
-        lives_ok {
-             $got = $uploaderObj->_insertNewFileRecord( $MOCK_DBH )
-        }, "Insert new file and processing_file records worked.";
+        is( 1, $obj->_insertFile( $MOCK_DBH ), "Insert file record transaction" );
     }
+
 }
 
 sub makeUploadDbEvents {
