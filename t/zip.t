@@ -82,15 +82,15 @@ my $MOCK_DBH = DBI->connect(
 
 my $TEMP_DIR = File::Temp->newdir();  # Auto-delete when out of scope
 
- subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
- subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
- subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
- subtest( '_getLaneToZip()'             => \&test__getLaneToZip );
- subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
- subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
- subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
- subtest( '_zip()'                      => \&test__zip );
- subtest( '_insertNewFileRecord()'      => \&test_insertNewFileRecord);
+subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
+subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
+subtest( '_insertNewZipUploadRecord()' => \&test__insertNewZipUploadRecord );
+subtest( '_tagLaneToUpload()'          => \&test__tagLaneToUpload );
+subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
+subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
+subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
+subtest( '_zip()'                      => \&test__zip );
+subtest( '_insertNewFileRecord()'      => \&test_insertNewFileRecord);
 
 #
 # Subtests
@@ -198,22 +198,18 @@ sub test__findNewLaneToZip {
 }
 
 sub test__createUploadWorkspace {
-    plan( tests => 8 );
-    my $targetDir = File::Spec->catdir( $TEMP_DIR, "FQ" );
-    mkdir( $targetDir );
-
+    plan( tests => 7 );
 
     my $opt = { %$OPT_HR,
-        'uploadFastqBaseDir' => $targetDir,
+        'uploadFastqBaseDir' => $TEMP_DIR,
         '_bamUploadDir'      => $DATA_DIR,
+        '_fastqUploadUuid'   => 'UniqueUuid',
     };
     my $obj = $CLASS->new( $opt );
     my $dbh = undef;
 
-    # Testing the test.
-    {
-        ok(-d $targetDir, "Found target base directory");
-    }
+
+    # Run the procedure on a good object
     {
         my $got  = $obj->_createUploadWorkspace();
         my $want = 1;
@@ -221,9 +217,18 @@ sub test__createUploadWorkspace {
             is( $got, $want, "_createUploadWorkspace appears to run succesfully");
         }
     }
+
+    # Check results for experiment.xml
     {
-        my $fromFile = File::Spec->catfile(           $obj->{'_bamUploadDir'},    "experiment.xml" );
-        my $toFile = File::Spec->catfile( $targetDir, $obj->{'_fastqUploadUuid'}, "experiment.xml" );
+        my $fromFile = File::Spec->catfile(
+            $obj->{'_bamUploadDir'},
+            "experiment.xml"
+        );
+        my $toFile = File::Spec->catfile(
+            $obj->{'uploadFastqBaseDir'},
+            $obj->{'_fastqUploadUuid'},
+            "experiment.xml"
+        );
         {
             ok(-f $fromFile && (-s $fromFile) > 0, "Found source experiment file");
         }
@@ -234,9 +239,18 @@ sub test__createUploadWorkspace {
             files_eq( $fromFile, $toFile, "experiment file copied ok");
         }
     }
+    
+    # Check results for run.xml
     {
-        my $fromFile = File::Spec->catfile( $obj->{'_bamUploadDir'},   "run.xml" );
-        my $toFile = File::Spec->catfile(   $obj->{'_fastqUploadDir'}, "run.xml" );
+        my $fromFile = File::Spec->catfile(
+            $obj->{'_bamUploadDir'},
+            "run.xml"
+        );
+        my $toFile = File::Spec->catfile(
+            $obj->{'uploadFastqBaseDir'},
+            $obj->{'_fastqUploadUuid'},
+            "run.xml"
+        );
         {
             ok(-f $fromFile && (-s $fromFile) > 0, "Found source run file");
         }
@@ -340,33 +354,57 @@ sub test__fastqFilesSqlSubSelect {
     }
 }
 
-sub test__getLaneToZip {
+sub test__tagLaneToUpload {
     plan( tests => 2 );
 
-    my $sampleId = -19;
-    my $laneId = -12;
-    my $uploadId = -21;
-    my $status = 'zip_running';
+    # Most of this was tested with the individual methods. This checks the
+    # combination works.
 
-    my $objToModify = $CLASS->new( $OPT_HR );
-    $objToModify->{'_laneId'} = $laneId;
-    $objToModify->{'_sampleId'} = $sampleId;
+    my $sampleId = -19;
+    my $laneId   = -12;
+    my $uploadId = -21;
+    my $status   = 'zip_running';
+    my $bamMetaDataDir = 't';
+    my $bamUuidDir = 'Data';
+    my $fastqMetaDataDir = $TEMP_DIR;
+    my $fastqUuid = 'someRandomUuid';
+
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_laneId'}   = $laneId;
+    $obj->{'_sampleId'} = $sampleId;
+    $obj->{'uploadFastqBaseDir'} = $fastqMetaDataDir;
+    $obj->{'_fastqUploadUuid'} = $fastqUuid;
 
     my @dbEventsOk = ({
+         'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+    }, {
+        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'results'     => [
+            [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir',  'cghub_analysis_id' ],
+            [ $laneId,    $sampleId,   $uploadId,   $bamMetaDataDir, $bamUuidDir        ],
+        ],
+    }, {
         'statement'   => qr/INSERT INTO upload.*/msi,
-        'bound_params' => [ $sampleId ],
+        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $status, $fastqMetaDataDir, $fastqUuid],
         'results'  => [[ 'upload_id' ], [ $uploadId ]],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
     });
+
     $MOCK_DBH->{'mock_session'} =
         DBD::Mock::Session->new( 'newUploadRecord', @dbEventsOk );
 
     {
-        my $got = $objToModify->_insertNewZipUploadRecord( $MOCK_DBH, $status );
+        my $got = $obj->_tagLaneToUpload( $MOCK_DBH, $status );
         my $want = 1;
-        is( $got, $want, "Return 1 if inserted upload record to zip" );
+        is( $got, $want, "Return 1 if found and inserted record to zip" );
     }
     {
-       my $got = $objToModify->{'_uploadId'};
+       my $got = $obj->{'_fastqUploadId'};
        my $want = $uploadId;
        is( $got, $want, "Upload id stored in object" );
     }

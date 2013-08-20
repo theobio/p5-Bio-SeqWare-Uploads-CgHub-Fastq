@@ -93,6 +93,17 @@ sub new {
     return $self;
 }
 
+=head2 getUuid()
+
+=cut
+
+sub getUuid() {
+    my $class = shift;
+    my $uuid = `uuidgen`;
+    chomp $uuid;
+    return $uuid;
+}
+
 =head1 INSTANCE METHODS
 
 =cut
@@ -275,6 +286,7 @@ sub doZip {
     my $dbh = shift;
 
     eval {
+        $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
         $self->_tagLaneToUpload($dbh, "zip_running");
         $self->_getFilestoZip( $dbh );
         $self->_zip( $dbh );
@@ -299,6 +311,10 @@ sub _tagLaneToUpload {
     my $self = shift;
     my $dbh = shift;
     my $newUploadStatus = shift;
+    if (! $newUploadStatus) {
+        $self->{'error'} = 'no_status_param';
+        croak( "No status parameter specified." );
+    }
 
     eval {
         # Transaction to ensures 'find' and 'tag as found' occur in one step,
@@ -465,10 +481,10 @@ Uses internal values:
     uploadFastqBaseDir => from config, base directory for fastq zip uploads.
     _bamUploadDir      => directory for the previously completed 
                           mapsplice genome bam uploads for this lane.
+    _fastqUploadUuid   => A uuid previously generated for this run.
 
 Sets internal values:
 
-    _fastqUploadUuid => Generates a new uuid value and stores it here.
     _fastqUploadDir  => directory for fastq uploads for this lane,
                         made from the fastqUploadBaseDir + new uuid lane value
 
@@ -497,8 +513,6 @@ sub _createUploadWorkspace {
         croak "Can't find the fastq upload base dir: $self->{'uploadFastqBaseDir'}";
     }
 
-    $self->{'_fastqUploadUuid'} = `uuidgen`;
-    chomp $self->{'_fastqUploadUuid'};
     $self->{'_fastqUploadDir'} = File::Spec->catdir(
         $self->{'uploadFastqBaseDir'}, $self->{'_fastqUploadUuid'}
     );
@@ -634,7 +648,6 @@ sub _insertNewZipUploadRecord {
 
     return 1;
 }
-
 
 =head2 _fastqFilesSqlSubSelect( ... )
 
