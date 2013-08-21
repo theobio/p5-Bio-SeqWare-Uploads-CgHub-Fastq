@@ -16,6 +16,8 @@
    "prereqs" : {
       "build" : {
          "requires" : {
+            "DBD::Mock" : "0.018",
+            "Test::File::Contents" : "0",
             "Test::More" : "0"
          }
       },
@@ -26,8 +28,10 @@
       },
       "runtime" : {
          "requires" : {
+            "Bio::SeqWare::Config" : "0.000003",
             "Bio::SeqWare::Db::Connection" : "0.000002",
-            "perl" : "0.008"
+            "DBI" : "0",
+            "perl" : "0.014"
          }
       }
    },

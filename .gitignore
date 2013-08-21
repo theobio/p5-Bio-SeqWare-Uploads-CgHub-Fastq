@@ -16,8 +16,7 @@ pod2htm*.tmp
 pm_to_blib
 
 # Perl: this repo
-p5-Bio-SeqWare-Uploads-CgHub-Fastq-*
-p5-Bio-SeqWare-Uploads-CgHub-Fastq-*.tar.gz
+Bio-SeqWare-Uploads-CgHub-Fastq-*
 
 # OS: Mac OS X
 .DS_Store
