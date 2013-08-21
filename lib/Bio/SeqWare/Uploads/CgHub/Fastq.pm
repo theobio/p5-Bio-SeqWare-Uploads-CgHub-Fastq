@@ -1049,9 +1049,43 @@ sub _insertProcessingFileRecords {
 
 =head2 _insertUploadFileRecord()
 
+
 =cut
 
 sub _insertUploadFileRecord {
+
+    my $self = shift;
+    my $dbh = shift;
+
+    my $newUploadFileSQL =
+        "INSERT INTO upload_file (upload_id, file_id)"
+     . " VALUES (?,?)";
+
+    if ($self->{'verbose'}) {
+         print "Insert upload_file record SQL: $newUploadFileSQL\n";
+    }
+
+    eval {
+        my $newUploadFileSTH = $dbh->prepare($newUploadFileSQL);
+        $newUploadFileSTH->execute(
+            $self->{'_fastqUploadId'}, $self->{'_zipFileId'}
+        );
+        my $rowsInserted = $newUploadFileSTH->rows();
+        if ($rowsInserted != 1) {
+            $self->{'error'} = "insert_upload_file";
+            croak "failed to insert upload_file record\n";
+        }
+    };
+
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'insert_upload_files';
+        }
+        croak "Upload_file insert failed: $error\n";
+    }
+
+    return 1;
 
 }
 

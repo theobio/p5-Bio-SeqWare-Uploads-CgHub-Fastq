@@ -17,7 +17,7 @@ use DBD::Mock;
 use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test Modules
 use Test::Exception;
 use Test::File::Contents;
-use Test::More 'tests' => 11;   # Run this many Test::More compliant subtests.
+use Test::More 'tests' => 12;   # Run this many Test::More compliant subtests.
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
@@ -82,6 +82,7 @@ subtest( '_zip()'                      => \&test__zip );
 subtest( '_insertFileRecord()'      => \&test__insertFileRecord);
 subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
 subtest( '_insertFile()'               => \&test__insertFile);
+subtest( '_insertUploadFileRecord()'   => \&test__insertUploadFileRecord);
 
 #
 # Subtests
@@ -835,8 +836,8 @@ sub test__insertFile {
     my $obj = $CLASS->new( $OPT_HR );
     $obj->{'_zipFile'}    = $EXPECTED_OUT_FILE;
     $obj->{'_zipFileMd5'} = $fakeMd5;
-    $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
-    $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
+    $obj->{'_fastqs'}->[0]->{'processingId'} = $processingId1;
+    $obj->{'_fastqs'}->[1]->{'processingId'} = $processingId2;
 
     {
         is( 1, $obj->_insertFile( $MOCK_DBH ), "Insert file record transaction" );
@@ -844,6 +845,27 @@ sub test__insertFile {
 
 }
 
+sub test__insertUploadFileRecord {
+    plan ( tests => 1 );
+
+    my $fileId = -6;
+    my $uploadId = -20;
+
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
+        'statement'    => qr/INSERT INTO upload_file.*/msi,
+        'bound_params' => [ $uploadId, $fileId ],
+        'results'  => [ [ 'rows' ], [] ],
+    } ));
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_zipFileId'} = $fileId;
+    $obj->{'_fastqUploadId'} = $uploadId;
+
+    {
+        is( 1, $obj->_insertUploadFileRecord( $MOCK_DBH ), "Insert upload_file record" );
+    }
+ 
+}
 sub makeUploadDbEvents {
 
     my $newStatus = shift;
