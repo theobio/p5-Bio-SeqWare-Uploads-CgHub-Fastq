@@ -80,7 +80,7 @@ sub new {
 
         '_laneId'    => undef,
         '_sampleId'  => undef,
-        '_uploadId'  => undef,
+        '_fastqUploadId'  => undef,
         '_fastqs'    => undef,
         '_zipFile'   => undef,
         '_zipMd5Sum' => undef,
@@ -285,9 +285,15 @@ sub doZip {
     my $dbh = shift;
 
     eval {
-        $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
+        # Allow UUID to be provided, basically for testing as this is a random value.
+        if (! $self->{'_fastqUploadUuid'}) {
+            $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
+        }
+        if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
+             croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
+        }
         $self->_tagLaneToUpload($dbh, "zip_running");
-        $self->_getFilestoZip( $dbh );
+        $self->_getFilesToZip( $dbh );
         $self->_zip( $dbh );
         $self->_insertFile( $dbh );
         $self->_insertUploadFileRecord( $dbh );
@@ -890,8 +896,8 @@ sub _updateUploadStatus {
     my $self = shift;
     my $dbh = shift;
     my $newStatus = shift;
-    if (! defined $newStatus || ! ($self->{'_uploadId'}) ) {
-        croak "Can't update upload record ID = $self->{'_uploadId'}"
+    if (! defined $newStatus || ! ($self->{'_fastqUploadId'}) ) {
+        croak "Can't update upload record ID = $self->{'_fastqUploadId'}"
         . " to status = '$newStatus'.";
     }
     my $updateSQL =
@@ -904,7 +910,7 @@ sub _updateUploadStatus {
     eval {
         $dbh->begin_work();
         my $updateSTH = $dbh->prepare($updateSQL);
-        $updateSTH->execute($newStatus, $self->{'_uploadId'});
+        $updateSTH->execute($newStatus, $self->{'_fastqUploadId'});
         my $rowsAffected = $updateSTH->rows();
         $updateSTH->finish();
 
@@ -922,8 +928,10 @@ sub _updateUploadStatus {
         if ($@) {
             $error .= " ALSO: error rolling back _updateUploadStatus transaction: $@\n";
         }
-        croak "Failed to update status of $self->{'_uploadId'} to $newStatus: $error\n";
+        croak "Failed to update status of $self->{'_fastqUploadId'} to $newStatus: $error\n";
     }
+    
+    return 1;
 }
 
 sub _insertFile {
@@ -974,7 +982,7 @@ sub _insertFileRecord {
     eval {
         my $newFileSTH = $dbh->prepare($newFileSQL);
         $newFileSTH->execute(
-            $self->{'_zipFile'},
+            $self->{'_zipFileName'},
             $zipFileMetaType,
             $zipFileType,
             $zipFileDescription,
@@ -1066,6 +1074,7 @@ sub _insertUploadFileRecord {
     }
 
     eval {
+        $dbh->begin_work();
         my $newUploadFileSTH = $dbh->prepare($newUploadFileSQL);
         $newUploadFileSTH->execute(
             $self->{'_fastqUploadId'}, $self->{'_zipFileId'}
@@ -1075,10 +1084,17 @@ sub _insertUploadFileRecord {
             $self->{'error'} = "insert_upload_file";
             croak "failed to insert upload_file record\n";
         }
+        $dbh->commit();
     };
 
     if ($@) {
         my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= "\n ALSO: error rolling back _updateUploadStatus transaction: $@\n";
+        }
         if (! $self->{'error'}) {
             $self->{'error'} = 'insert_upload_files';
         }
@@ -1091,8 +1107,12 @@ sub _insertUploadFileRecord {
 
 =head2 _zip()
 
+    $self->_zip();
+
 Actually does the zipping, and returns 1, or dies setting 'error' and returning
 an error message.
+
+
 =cut
 
 sub _zip() {
@@ -1181,7 +1201,7 @@ sub _zip() {
         $self->{'error'} = "zipfile_md5_generation";
         croak "Generation of zip file md5 failed.";
     }
-    $self->{'_zipMd5Sum'} = $md5result;
+    $self->{'_zipFileMd5'} = $md5result;
 
     return 1;
 }

@@ -17,7 +17,7 @@ use DBD::Mock;
 use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test Modules
 use Test::Exception;
 use Test::File::Contents;
-use Test::More 'tests' => 12;   # Run this many Test::More compliant subtests.
+use Test::More 'tests' => 14;   # Run this many Test::More compliant subtests.
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
@@ -43,18 +43,28 @@ my $FASTQ_MISMATCH_MD5 = '23487060edd0e7121daab3f03177828f';
 my $CONFIG = Bio::SeqWare::Config->new();
 my $OPT = $CONFIG->getKnown();
 my $OPT_HR = { %$OPT,
-    'runMode' => 'alL',
+    'runMode'      => 'alL',
     'minFastqSize' => 10,
     'dataRoot'     => $TEMP_DIR,
+    'uploadFastqBaseDir' => $TEMP_DIR,
+    'uploadBamBaseDir'   => undef,
     'myName'       => 'DELETE_ME-upload-cghub-fastq_0.0.1',
+    'rerun'        => 1,
 };
+
+#
+# Defaults for zip file record
+#
+
+my $ZIP_FILE_TYPE        = 'fastq-by-end-tar-bundled-gz-compressed';
+my $ZIP_FILE_META_TYPE   = 'application/tar-gz';
+my $ZIP_FILE_DESCRIPTION = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
+my $ZIP_FILE_FAKE_MD5    = "ABBACADABBA";
 
 my $FLOWCELL   = '130702_UNC9-SN296_0380_BC24VKACXX';
 my $LANE_INDEX = '1';
 my $BARCODE    = 'GATCAG';
-my $BASE_NAME = $FLOWCELL . "_" . ($LANE_INDEX + 1) . "_" . $BARCODE;
-
-
+my $BASE_NAME  = $FLOWCELL . "_" . ($LANE_INDEX + 1) . "_" . $BARCODE;
 
 my $EXPECTED_OUT_DIR = File::Spec->catdir(
      $OPT_HR->{'dataRoot'}, $FLOWCELL, $OPT_HR->{'myName'}
@@ -70,23 +80,32 @@ my $MOCK_DBH = DBI->connect(
     { 'RaiseError' => 1, 'PrintError' => 0 },
 );
 
+# Class method tests
+subtest( 'getUuid()' => \&test_getUuid );
 
 subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
 subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
-subtest( '_insertZipUploadRecord()' => \&test__insertZipUploadRecord );
+subtest( '_insertZipUploadRecord()'    => \&test__insertZipUploadRecord );
 subtest( '_tagLaneToUpload()'          => \&test__tagLaneToUpload );
 subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
 subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
-subtest( '_updateUploadStatus()'       => \&test__UpdateUploadStatus);
+subtest( '_updateUploadStatus()'       => \&test__updateUploadStatus);
 subtest( '_zip()'                      => \&test__zip );
-subtest( '_insertFileRecord()'      => \&test__insertFileRecord);
+subtest( '_insertFileRecord()'         => \&test__insertFileRecord);
 subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
 subtest( '_insertFile()'               => \&test__insertFile);
 subtest( '_insertUploadFileRecord()'   => \&test__insertUploadFileRecord);
 
+subtest( '_doZip()' => \&test__doZip );
+
+
 #
 # Subtests
 #
+sub test_getUuid {
+    plan( tests => 1 );
+    like( $CLASS->getUuid(), qr/[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i, "Is a regexp" );
+}
 
 sub test__findNewLaneToZip {
     plan( tests => 12 );
@@ -411,12 +430,8 @@ sub test__getFilesToZip {
     my $fastqWorkflowRunId = -2315;
     my $processingId1 = -20;
     my $processingId2 = -2020;
-    my $fastq1 = $FASTQ1;
-    my $fastq2 = $FASTQ2;
     my $fileId1 = -6;
     my $fileId2 = -66;
-    my $fastq1Md5 = $FASTQ1_MD5;
-    my $fastq2Md5 = $FASTQ1_MD5;
     my $wf1 = 613863;
     my $wf2 = 851553;
 
@@ -427,7 +442,7 @@ sub test__getFilesToZip {
             'results'  => [
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
             ]
         });
@@ -446,8 +461,8 @@ sub test__getFilesToZip {
             is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok one613863 _laneIndex" );
             is( $obj->{'_barcode'}, $BARCODE, "ok one613863 _barcode" );
 
-            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one613863 filePath0" );
-            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one613863 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $FASTQ1, "ok one613863 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $FASTQ1_MD5, "ok one613863 md5sum0" );
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one613863 processingId0" );
             is( $obj->{'_fastqs'}->[1], undef );
         }
@@ -458,9 +473,9 @@ sub test__getFilesToZip {
             'results'  => [
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-                [ $fastq2, $fastq2Md5, $fastqWorkflowRunId,
+                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
             ]
         });
@@ -479,11 +494,11 @@ sub test__getFilesToZip {
             is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok two613863 _laneIndex" );
             is( $obj->{'_barcode'}, $BARCODE, "ok two613863 _barcode" );
 
-            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two613863 filePath0" );
-            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two613863 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $FASTQ1, "ok two613863 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $FASTQ1_MD5, "ok two613863 md5sum0" );
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok two613863 processingId0" );
-            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two613863 filePath1" );
-            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two613863 md5sum2" );
+            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $FASTQ2, "ok two613863 filePath1" );
+            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $FASTQ2_MD5, "ok two613863 md5sum2" );
             is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two613863 processingId0" );
         }
     }{
@@ -498,7 +513,7 @@ sub test__getFilesToZip {
             'results'  => [
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
             ]
         });
@@ -517,8 +532,8 @@ sub test__getFilesToZip {
             is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok one851553 _laneIndex" );
             is( $obj->{'_barcode'}, $BARCODE, "ok one851553 _barcode" );
 
-            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok one851553 filePath0" );
-            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok one851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $FASTQ1, "ok one851553 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $FASTQ1_MD5, "ok one851553 md5sum0" );
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one851553 processingId0" );
             is( $obj->{'_fastqs'}->[1], undef );
         }
@@ -534,9 +549,9 @@ sub test__getFilesToZip {
             'results'  => [
                 [ 'file_path', 'md5sum', 'workflow_run_id',
                   'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $fastq1, $fastq1Md5, $fastqWorkflowRunId,
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-                [ $fastq2, $fastq2Md5, $fastqWorkflowRunId,
+                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
                   $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
             ]
         });
@@ -555,11 +570,11 @@ sub test__getFilesToZip {
             is( $obj->{'_laneIndex'}, $LANE_INDEX, "ok two851553 _laneIndex" );
             is( $obj->{'_barcode'}, $BARCODE, "ok two851553 _barcode" );
 
-            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $fastq1, "ok two851553 filePath0" );
-            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $fastq1Md5, "ok two851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[0]->{'filePath'}, $FASTQ1, "ok two851553 filePath0" );
+            is( $obj->{'_fastqs'}->[0]->{'md5sum'}, $FASTQ1_MD5, "ok two851553 md5sum0" );
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok two851553 processingId0" );
-            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $fastq2, "ok two851553 filePath0" );
-            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $fastq2Md5, "ok two851553 md5sum0" );
+            is( $obj->{'_fastqs'}->[1]->{'filePath'}, $FASTQ2, "ok two851553 filePath0" );
+            is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $FASTQ2_MD5, "ok two851553 md5sum0" );
             is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two851553 processingId1" );
         }
     }{
@@ -573,7 +588,7 @@ sub test__getFilesToZip {
             'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
             'bound_params' => [ $sampleId, $laneId],
             'results'  => [[]],
-        }), makeUploadDbEvents($newStatus, $uploadId));
+        }) );
 
 
         $MOCK_DBH->{'mock_session'} =
@@ -728,21 +743,32 @@ sub test__zip {
     }
 }
 
-sub test__UpdateUploadStatus {
+sub test__updateUploadStatus {
 
     plan ( tests => 1 );
 
     my $newStatus  = 'test_ignore_not-real-status';
-    my $obj = $CLASS->new( $OPT_HR );
-    $obj->{'_uploadId'} = -21;
+    my $uploadId= -21;
 
-    my @dbSesssion = makeUploadDbEvents($newStatus, $obj->{'_uploadId'});
-    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( $newStatus, @dbSesssion );
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_fastqUploadId'} = $uploadId;
+
+    my @dbSesssion = ({
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/UPDATE upload.*/msi,
+        'bound_params' => [ $newStatus, $uploadId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    $MOCK_DBH->{'mock_session'} =
+        DBD::Mock::Session->new( $newStatus, @dbSesssion );
     {
-        my $got;
-        lives_ok {
-             $got = $obj->_updateUploadStatus( $MOCK_DBH, $newStatus )
-        }, "DB session worked.";
+        is( 1, $obj->_updateUploadStatus( $MOCK_DBH, $newStatus ), "Updated upload status." );
     }
 
 }
@@ -751,21 +777,17 @@ sub test__insertFileRecord {
 
     plan ( tests => 2 );
 
-    my $type  = 'fastq-by-end-tar-bundled-gz-compressed';
-    my $metaType  = 'application/tar-gz';
-    my $description = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
     my $fileId = -6;
-    my $fakeMd5 = "bad1";
 
     $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
         'statement'    => qr/INSERT INTO file.*/msi,
-        'bound_params' => [ $EXPECTED_OUT_FILE, $metaType, $type, $description, $fakeMd5 ],
+        'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
         'results'  => [[ 'file_id' ], [ $fileId ]],
     } ));
 
     my $obj = $CLASS->new( $OPT_HR );
-    $obj->{'_zipFile'}    = $EXPECTED_OUT_FILE;
-    $obj->{'_zipFileMd5'} = $fakeMd5;
+    $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
+    $obj->{'_zipFileMd5'} = $ZIP_FILE_FAKE_MD5;
 
     {
         is( 1, $obj->_insertFileRecord( $MOCK_DBH ), "Insert file record" );
@@ -804,11 +826,6 @@ sub test__insertProcessingFileRecord {
 sub test__insertFile {
     plan ( tests => 1 );
 
-    my $type  = 'fastq-by-end-tar-bundled-gz-compressed';
-    my $metaType  = 'application/tar-gz';
-    my $description = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
-
-    my $fakeMd5 = 'f586508aaae41811e1ed491f762442d9';
     my $fileId = -6;
     my $processingId1 = -20;
     my $processingId2 = -2020;
@@ -818,7 +835,7 @@ sub test__insertFile {
         'results'  => [[]],
     }, {
         'statement'    => qr/INSERT INTO file.*/msi,
-        'bound_params' => [ $EXPECTED_OUT_FILE, $metaType, $type, $description, $fakeMd5 ],
+        'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
         'results'  => [[ 'file_id' ], [ $fileId ]],
     }, {
         'statement'    => qr/INSERT INTO processing_file.*/msi,
@@ -834,8 +851,8 @@ sub test__insertFile {
     } ));
 
     my $obj = $CLASS->new( $OPT_HR );
-    $obj->{'_zipFile'}    = $EXPECTED_OUT_FILE;
-    $obj->{'_zipFileMd5'} = $fakeMd5;
+    $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
+    $obj->{'_zipFileMd5'} = $ZIP_FILE_FAKE_MD5;
     $obj->{'_fastqs'}->[0]->{'processingId'} = $processingId1;
     $obj->{'_fastqs'}->[1]->{'processingId'} = $processingId2;
 
@@ -852,9 +869,15 @@ sub test__insertUploadFileRecord {
     my $uploadId = -20;
 
     $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
+         'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+    }, {
         'statement'    => qr/INSERT INTO upload_file.*/msi,
         'bound_params' => [ $uploadId, $fileId ],
         'results'  => [ [ 'rows' ], [] ],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
     } ));
 
     my $obj = $CLASS->new( $OPT_HR );
@@ -866,23 +889,133 @@ sub test__insertUploadFileRecord {
     }
  
 }
-sub makeUploadDbEvents {
 
-    my $newStatus = shift;
-    my $uploadId = shift;
+sub test__doZip {
 
-    my @dbEvents = ( {
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/UPDATE upload.*/msi,
-            'bound_params' => [ $newStatus, $uploadId ],
-            'results'  => [[ 'rows' ], []],
-        }, {
-           'statement' => 'COMMIT',
-           'results'  => [[]],
-        }
-    );
+    # Bam upload record info.
+    my $laneId         = 12;
+    my $sampleId       = 19;
+    my $bamUploadId    = 221;
+    my $bamMetaDataDir = 't';      # The parent directory for the fake bam uplaod
+    my $bamUuid        = 'Data';   # The actual directory with the fake bam uplaod data files
 
-    return @dbEvents;
+    # Fastq upload record info;
+    my $fastqUploadId    = 521;
+    my $fastqMetaDataDir = $TEMP_DIR;                              # Parent directory for the fastq upload
+    my $fastqUuid        = '00000000-0000-0000-0000-000000000000'; # Actual directory with the fastq upload data files
+    my $initialStatus    = 'zip_running';
+
+    # vw_files info for fastq files retrieved to go with the uploaded lane.
+    # Assuming the two sample pe fastq paths and their md5 sums were returned.
+    my $fastqWorkflowRunId = 613863;   # FinalizeCasava, although makes no difference here
+    my $processingId1      = 16;
+    my $processingId2      = 1616;
+
+    # zip file info
+    # Assuming the flowcell, lane, and barcode example used throughout
+    my $zipFileId = 266;
+
+    # final upload value
+    my $finalStatus = 'zip_completed';
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_fastqUploadUuid'} = '00000000-0000-0000-0000-000000000000';
+
+    my @dbEventsOk = ({
+         'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+    }, {
+        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'results'     => [
+            [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
+            [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
+        ],
+    }, {
+        'statement'   => qr/INSERT INTO upload.*/msi,
+        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
+        'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+        ]
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/INSERT INTO file.*/msi,
+        # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
+        # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
+        'results'  => [[ 'file_id' ], [ $zipFileId ]],
+    }, {
+        'statement'    => qr/INSERT INTO processing_file.*/msi,
+        'bound_params' => [ $processingId1, $zipFileId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+        'statement'    => qr/INSERT INTO processing_file.*/msi,
+        'bound_params' => [ $processingId2, $zipFileId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/INSERT INTO upload_file.*/msi,
+        'bound_params' => [ $fastqUploadId, $zipFileId ],
+        'results'  => [ [ 'rows' ], [] ],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/UPDATE upload.*/msi,
+        'bound_params' => [ $finalStatus, $fastqUploadId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    $MOCK_DBH->{'mock_session'} =
+        DBD::Mock::Session->new( 'doXip', @dbEventsOk );
+
+#        $self->_insertUploadFileRecord( $dbh );
+#        $self->_updateUploadStatus( $dbh, "zip_completed");
+
+    is( 1, $obj->doZip( $MOCK_DBH ), "doZip completes ok" );
 }
+
+#sub makeUploadDbEvents {
+#
+#    my $newStatus = shift;
+#    my $uploadId = shift;
+#
+#    my @dbEvents = ( {
+#            'statement' => 'BEGIN WORK',
+#            'results'  => [[]],
+#        }, {
+#            'statement'    => qr/UPDATE upload.*/msi,
+#            'bound_params' => [ $newStatus, $uploadId ],
+#            'results'  => [[ 'rows' ], []],
+#        }, {
+#           'statement' => 'COMMIT',
+#           'results'  => [[]],
+#        }
+#    );
+#
+#    return @dbEvents;
+#}
