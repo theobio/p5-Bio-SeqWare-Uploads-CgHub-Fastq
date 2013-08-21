@@ -30,15 +30,16 @@ my $configParser = Bio::SeqWare::Config->new();
 my $configOptions = $configParser->getKnown();
 
 my $opt = _processCommandLine( $configOptions );
-print Dumper( $opt );
-my $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
+if ($opt->{'verbose'}) {
+    print Dumper( $opt );
+}
 
 eval {
+    my $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
     $instance->run();
 };
-
 if (@$) {
-    die "Program died in step $instance->{step} with error: $@\n";
+    die "Program died with error:\n$@\n";
 }
 
 
@@ -158,11 +159,11 @@ sub _processCommandLine {
         'dbSchema=s'   => \$opt{'dbSchema'},
 
         'uploadFastqBaseDir=s' => \$opt{'uploadFastqBaseDir'},
-        'uploadBamBaseDir=s' => \$opt{'uploadBamBaseDir'},
-        'dataRoot=s'       => \$opt{'dataRoot'},
-        'minFastqSize=i'   => \$opt{'minFastqSize'},
-        'rerun'            => \$opt{'rerun'},
-        'runMode=s'        => \$opt{'runMode'},
+        'uploadBamBaseDir=s'   => \$opt{'uploadBamBaseDir'},
+        'dataRoot=s'           => \$opt{'dataRoot'},
+        'minFastqSize=i'       => \$opt{'minFastqSize'},
+        'rerun'                => \$opt{'rerun'},
+        'runMode=s'            => \$opt{'runMode'},
 
 #        'sample=s'      => \$opt{'sample'},
 #        'flowcell=s'    => \$opt{'flowcell'},
@@ -182,6 +183,7 @@ sub _processCommandLine {
         'help'         => sub {
             pod2usage( { -verbose => 2, -exitval => 1 });
         },
+
     ) or pod2usage( { -verbose => 1, -exitval => 2 });
 
     return \%opt;
