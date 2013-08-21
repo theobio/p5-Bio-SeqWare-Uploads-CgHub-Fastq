@@ -1,8 +1,6 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.001 PRE-RELEASE
+0.000.001 2013-08-21 12:45:00
  [MAJOR] - Initial release
-         - Implement new()
-         - Implement run()
-         - Implement getAll()
-         - Added template program bin/upload-cghub-fastq.pl
+         - Only ZIP command active (META, VALIDATE, UPLOAD disabled)
+         - Includes program upload-cghub-fastq.pl

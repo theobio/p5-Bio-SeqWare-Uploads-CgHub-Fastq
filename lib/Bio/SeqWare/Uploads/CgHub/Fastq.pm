@@ -4,13 +4,14 @@ use 5.014;         # Eval $@ safe to use.
 use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
-$Carp::Verbose = 1;
+# $Carp::Verbose = 1;
 use Bio::SeqWare::Config;   # Read the seqware config file
 use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
 use Data::Dumper;
 use File::Spec;
 use File::Path qw(make_path);
 use File::Copy qw(cp);
+use DBI;
 
 =head1 NAME
 
@@ -20,11 +21,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.001   # PRE-RELEASE
+Version 0.000.001
 
 =cut
 
-our $VERSION = '0.000001';   # PRE-RELEASE
+our $VERSION = '0.000001';
 
 =head1 SYNOPSIS
 
@@ -130,6 +131,7 @@ and returns undef.
 sub run {
     my $self = shift;
     my $runMode = shift;
+    my $dbh = shift;
 
     # Validate runMode parameter
     if (! defined $runMode) {
@@ -137,44 +139,50 @@ sub run {
     }
     if (! defined $runMode || ref $runMode ) {
         $self->{'error'} = "bad_run_mode";
-        croak "Can't run unless specify runMode.";
+        croak "Can't run unless specify a runMode.";
     }
     $runMode = uc $runMode;
 
-    # Connect to database. New connection for each step in combined runMode.
-    my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
-    if (! defined $connectionBuilder) {
-        $self->{'error'} = "constructing_connection";
-        croak "Failed to create Bio::SeqWare::Db::Connection.\n";
+    # Database connection likewise
+    if (! defined $dbh) {
+        $dbh = $self->{'dbh'};
     }
+    if (! defined $dbh ) {
+        eval {
+            my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
+            if (! defined $connectionBuilder) {
+                $self->{'error'} = "constructing_connection";
+                croak "Failed to create Bio::SeqWare::Db::Connection.\n";
+            }
 
-    my $dbh = $connectionBuilder->getConnection(
-         {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1}
-    );
-    if (! $dbh) {
-        $self->{'error'} = "db_connection";
-        croak "Failed to connect to database. $!\n";
+            $dbh = $connectionBuilder->getConnection(
+                 {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1}
+            );
+        };
+        if ($@ || ! $dbh) {
+            croak "Failed to connect to the database $@\n$!\n";
+        }
     }
 
     # Run as selected.
     eval {
         if ( $runMode eq "ALL" ) {
-            $self->run('ZIP');
-            $self->run('META');
-            $self->run('VALIDATE');
-            $self->run('UPLOAD');
+            $self->run('ZIP', $dbh);
+            $self->run('META', $dbh);
+            $self->run('VALIDATE', $dbh);
+            $self->run('UPLOAD', $dbh);
         }
         elsif ($runMode eq "ZIP" ) {
-            $self->doZip();
+            $self->doZip( $dbh );
         }
         elsif ($runMode eq "META" ) {
-            $self->doMeta();
+            $self->doMeta( $dbh );
         }
         elsif ($runMode eq "VALIDATE" ) {
-            $self->doValidate();
+            $self->doValidate( $dbh );
         }
         elsif ($runMode eq "UPLOAD" ) {
-            $self->doUpload();
+            $self->doUpload( $dbh );
         }
         else {
             $self->{'error'} = "unknown_run_mode";
@@ -306,6 +314,119 @@ sub doZip {
 
     return 1;
 }
+
+=head2 doMeta()
+
+ $obj->doMeta();
+
+From $obj, reads:
+ _metaDataRoot      - Absolute path to some directory
+ _fastqUploadId     - Id for new fastq upload record
+ _mapSpliceUploadId - Id for old mapsplice record
+ _uuidgenExec       - Executable for uuid generation
+ _fastqzTemplateDir - Directory where analysis.xml template is.
+ _realFileForUpload - Full path filename to fastqDir.
+
+To $obj, adds
+ _metaDataUuid   - The generated UUID used for this uploads meta-data.
+ _metaDataPath   - Full path, = _metaDataRoot + __metaDataUuid
+ _linkFileName   - The local name
+
+=cut
+
+sub doMeta() {
+    my $self = shift;
+    my $dbh = shift;
+
+
+    # Select/tag upload.status = 'meta-running'.
+    # Create new meta directory using uuidgen
+    # Copy mapsplice experiment.xml and run.xml to this directory.
+    # Generate new analysis.xml from template this directory.
+    # Create file link.
+    # Tag upload as meta-completed
+
+    eval {
+        croak("doMeta() not implemented!\n")
+    };
+    if ($@) {
+        my $error = $@;
+        croak $error;
+    }
+
+    return 1;
+
+}
+
+=head2 = doValidate()
+
+ $obj->doValidate();
+
+=cut
+
+sub doValidate() {
+    my $self = shift;
+    my $dbh = shift;
+
+    eval {
+        croak("doValidate() not implemented!\n")
+    };
+    if ($@) {
+        my $error = $@;
+        croak $error;
+    }
+
+    return 1;
+}
+
+=head2 = doUpload()
+
+ $obj->doUpload();
+
+=cut
+
+sub doUpload() {
+    my $self = shift;
+    my $dbh = shift;
+
+    eval {
+        croak("doUpload() not implemented!\n")
+    };
+    if ($@) {
+        my $error = $@;
+        croak $error;
+    }
+
+    return 1;
+}
+
+=head2 = getAll()
+
+  my $settingsHR = $obj->getAll();
+  
+Retrieve a copy of the properties assoiciated with this object.
+=cut
+
+sub getAll() {
+    my $self = shift;
+    my $copy;
+    for my $key (keys %$self) {
+        # Skip internal only (begin with "_") properties
+        if ($key !~ /^_/) {
+            $copy->{$key} = $self->{$key};
+        }
+    }
+    return $copy;
+}
+
+=head1 INTERNAL METHODS
+
+NOTE: These methods are for I<internal use only>. They are documented here
+mainly due to the effort needed to separate user and developer documentation.
+Pay no attention to code behind the underscore. These are not the methods you are
+looking for. If you use these function I<you are doing something wrong.>
+
+=cut
 
 =head2 _tagLaneToUpload()
 
@@ -507,6 +628,7 @@ Errors:
     zip_failed_creating_meta_dir       => Not Created: uuid upload dir
     zip_failed_copying_run_meta_file   => Not copied: run.xml
     zip_failed_copying_experiment_meta_file  => Not copied: expwriment.xml
+
 =cut
 
 sub _createUploadWorkspace {
@@ -934,7 +1056,14 @@ sub _updateUploadStatus {
     return 1;
 }
 
+=head2 _insertFile()
+
+    $self->_insertFile( $dbh )
+
+=cut
+
 sub _insertFile {
+
     my $self = shift;
     my $dbh = shift;
 
@@ -960,6 +1089,12 @@ sub _insertFile {
 
     return 1;
 }
+
+=head2 _insertFileRecord
+
+    $self->_insertFileRecord( $dbh )
+
+=cut
 
 sub _insertFileRecord {
     my $self = shift;
@@ -1012,6 +1147,12 @@ sub _insertFileRecord {
     return 1;
 }
 
+=head2 _insertProcessingFileRecords
+
+    $self->_insertProcessingFileRecords( $dbh )
+
+=cut
+
 sub _insertProcessingFileRecords {
     my $self = shift;
     my $dbh = shift;
@@ -1057,6 +1198,7 @@ sub _insertProcessingFileRecords {
 
 =head2 _insertUploadFileRecord()
 
+    $self->_insertUploadFileRecord( $dbh )
 
 =cut
 
@@ -1206,102 +1348,14 @@ sub _zip() {
     return 1;
 }
 
-=head2 doMeta()
-
- $obj->doMeta();
-
-From $obj, reads:
- _metaDataRoot      - Absolute path to some directory
- _fastqUploadId     - Id for new fastq upload record
- _mapSpliceUploadId - Id for old mapsplice record
- _uuidgenExec       - Executable for uuid generation
- _fastqzTemplateDir - Directory where analysis.xml template is.
- _realFileForUpload - Full path filename to fastqDir.
-
-To $obj, adds
- _metaDataUuid   - The generated UUID used for this uploads meta-data.
- _metaDataPath   - Full path, = _metaDataRoot + __metaDataUuid
- _linkFileName   - The local name
-
-=cut
-
-sub doMeta() {
-    my $self = shift;
-    my $dbh = shift;
-    $self->{'step'} = "doMeta";
-
-    # Select/tag upload.status = 'meta-running'.
-    # Create new meta directory using uuidgen
-    # Copy mapsplice experiment.xml and run.xml to this directory.
-    # Generate new analysis.xml from template this directory.
-    # Create file link.
-    # Tag upload as meta-completed
-    return 1;
-
-}
-
-=head2 = doValidate()
-
- $obj->doValidate();
-
-=cut
-
-sub doValidate() {
-    my $self = shift;
-    my $dbh = shift;
-    $self->{'step'} = "doValidate";
-
-    return 1;
-
-}
-
-=head2 = doUpload()
-
- $obj->doUpload();
-
-=cut
-
-sub doUpload() {
-    my $self = shift;
-    my $dbh = shift;
-    $self->{'step'} = "doUpload";
-
-    return 1;
-}
-
-=head2 = getAll()
-
-  my $settingsHR = $obj->getAll();
-  
-Retrieve a copy of the properties assoiciated with this object.
-=cut
-
-sub getAll() {
-    my $self = shift;
-    my $copy;
-    for my $key (keys %$self) {
-        # Skip internal only (begin with "_") properties
-        if ($key !~ /^_/) {
-            $copy->{$key} = $self->{$key};
-        }
-    }
-    return $copy;
-}
-
-=head1 INTERNAL METHODS
-
-NOTE: These methods are for I<internal use only>. They are documented here
-mainly due to the effort needed to separate user and developer documentation.
-Pay no attention to code behind the curtain; these are not the methods you are
-looking for. If you use these function I<you are doing something wrong.>
-
-    NONE
-
-=cut
-
 =head1 AUTHOR
 
 Stuart R. Jefferys, C<< <srjefferys (at) gmail (dot) com> >>
+
+Contributors:
+  Lisle Mose (get_sample.pl and generate_cghub_metadata.pl)
+  Brian O'Conner
+
 
 =cut
 

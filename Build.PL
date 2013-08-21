@@ -19,8 +19,9 @@ my $builder = Module::Build->new(
     },
     requires => {
         'perl' => '0.014',        # Safe eval/$@ as throw/catch for exception handling.
-        'Bio::SeqWare::Db::Connection'=> '0.000002',  # First working version.
-        'Bio::SeqWare::Config'        => '0.000.003', # Added needed keys.
+        'Bio::SeqWare::Db::Connection'=> '0.000002', # First working version.
+        'Bio::SeqWare::Config'        => '0.000003', # Added needed keys.
+        'DBI'  => 0,
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],
     create_makefile_pl => 'traditional',
