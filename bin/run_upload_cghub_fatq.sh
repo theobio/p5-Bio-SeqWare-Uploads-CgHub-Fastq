@@ -4,7 +4,7 @@
 #    Run the upload-cghub-fastq perl script
 #    $ run_upload-cghub-fastq.sh
 
-VERSION="0.001"
+VERSION="0.000.003"  # Pre-release
 
 # Enable perlbrew and switch to uncseqperl until done
 export PERLBREW_ROOT="/home/seqware/perl5/perlbrew"

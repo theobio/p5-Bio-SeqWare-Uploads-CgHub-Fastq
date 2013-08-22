@@ -1,5 +1,7 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.003 PRE-RELEASE
+
 0.000.002 2013-08-21 23:00:00
  [BUG]   - Cleaned up error propagation in executable.
  [DEV]   - New version dependency on Bio::SeqWare::Db:Connection: v0.000.004.
