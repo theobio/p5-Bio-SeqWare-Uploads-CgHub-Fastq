@@ -1,6 +1,7 @@
 bin/generate_cghub_metadata.pl
 bin/get_samples.pl
 bin/upload-cghub-fastq.pl
+bin/run_upload_cghub_fatq.sh
 Build.PL
 Changes
 lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm

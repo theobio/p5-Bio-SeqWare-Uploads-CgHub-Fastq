@@ -617,7 +617,7 @@ sub test__getFilesToZip {
 }
 
 sub test__zip {
-    plan( tests => 23 );
+    plan( tests => 25 );
 
     my $oneFastq = [{
         'filePath' => $FASTQ1,
@@ -664,6 +664,16 @@ sub test__zip {
          my $unzippedFile2 = File::Spec->catfile( $TEMP_DIR , "paired_end_two.fastq" );
          files_eq( $FASTQ1, $unzippedFile1, "After zip + unzip, paired end fastq 1 is the same" );
          files_eq( $FASTQ2, $unzippedFile2, "After zip + unzip, paired end fastq 2 is the same" );
+    }
+    {
+         $obj1File->{'rerun'} = 0;
+         eval{
+             $obj1File->_zip();
+         };
+         like( $@, qr/^Error\: not rerunning and have preexisting zip file/, "Dies if zip exists, not rerunning");
+         is( $obj1File->{'error'}, "prior_zip_file_exists", "Error message, zip exists, not rerunning");
+         $obj1File->{'error'} = undef;
+         $obj1File->{'rerun'} = 1;
     }
     {
          my $old = $obj1File->{'_fastqs'}->[0]->{'filePath'};

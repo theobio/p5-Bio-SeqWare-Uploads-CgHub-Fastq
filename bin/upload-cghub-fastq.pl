@@ -18,7 +18,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.001   # PRE-RELEASE
+Version 0.000.002
 
 =cut
 
@@ -38,7 +38,7 @@ eval {
     my $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
     $instance->run();
 };
-if (@$) {
+if ($@) {
     die "Program died with error:\n$@\n";
 }
 

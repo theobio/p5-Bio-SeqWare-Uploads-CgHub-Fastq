@@ -3,22 +3,23 @@ require 0.014;
 use ExtUtils::MakeMaker;
 WriteMakefile
 (
-  'VERSION_FROM' => 'lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm',
+  'NAME' => 'Bio::SeqWare::Uploads::CgHub::Fastq',
   'PREREQ_PM' => {
                    'Test::More' => 0,
-                   'Bio::SeqWare::Config' => '0.000003',
-                   'DBD::Mock' => '0.018',
-                   'DBI' => 0,
                    'Bio::SeqWare::Db::Connection' => '0.000002',
-                   'Test::File::Contents' => 0
+                   'Test::File::Contents' => 0,
+                   'Bio::SeqWare::Config' => '0.000003',
+                   'DBI' => 0,
+                   'DBD::Mock' => '0.018'
                  },
-  'NAME' => 'Bio::SeqWare::Uploads::CgHub::Fastq',
-  'PL_FILES' => {},
   'INSTALLDIRS' => 'site',
+  'VERSION_FROM' => 'lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm',
   'EXE_FILES' => [
                    'bin/generate_cghub_metadata.pl',
                    'bin/get_samples.pl',
+                   'bin/run_upload_cghub_fatq.sh',
                    'bin/upload-cghub-fastq.pl'
-                 ]
+                 ],
+  'PL_FILES' => {}
 )
 ;
