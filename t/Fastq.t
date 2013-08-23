@@ -149,15 +149,7 @@ sub testRun {
 }
 
 sub testRunNotImplemented {
-	plan( tests => 3 );
-	{
-	   my $obj = $CLASS->new( {} );
-       $obj->{'dbh'} = $MOCK_DBH;
-	   eval{ $obj->run( "META" ) };
-       my $got = $@;
-       my $want = qr/^doMeta\(\) not implemented/;
-       like( $got, $want, "error if runMode is META");
-    }
+	plan( tests => 2 );
 	{
 	   my $obj = $CLASS->new( {} );
        $obj->{'dbh'} = $MOCK_DBH;

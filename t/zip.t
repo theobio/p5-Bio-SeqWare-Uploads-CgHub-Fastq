@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-use 5.014;
+use 5.014;  # Safe $@ eval exception handling
 
 use strict;
 use warnings;
@@ -7,7 +7,7 @@ use Carp;                 # Caller-relative error messages
 use Data::Dumper;         # Quick error messages
 use File::Spec;           # Portable file handling
 
-use File::Temp;           # Simple files for testing
+use File::Temp;                     # Simple files for testing
 use DBI;
 
 use Bio::SeqWare::Config; # Access SeqWare settings file as options

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ANALYSIS_SET 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.analysis.xsd?view=co">
+	<ANALYSIS center_name="UNC-LCCC" alias="upload 7851" analysis_date="2013-08-14T12:20:42.703867" analysis_center="UNC-LCCC">
+		<TITLE>Fastq tar.gz for CgHub upload</TITLE>
+		<STUDY_REF accession="SRP000677" refcenter="NHGRI" refname="phs000178" />
+		<DESCRIPTION>UNC RNASeq fastq, one per read end, tarred and gzipped, for TCGA sample 66770b06-2cd6-4773-b8e8-5b38faa4f5a4</DESCRIPTION>
+		<ANALYSIS_TYPE>
+			<REFERENCE_ALIGNMENT>
+				<ASSEMBLY>
+					<STANDARD short_name="unaligned" />
+				</ASSEMBLY>
+				<RUN_LABELS>
+					<RUN refcenter="UNC-LCCC" refname="UNCID:2090626" read_group_label="130702_UNC9-SN296_0379_AC25KWACXX_6_ACTTGA" data_block_name="fastq"/>
+				</RUN_LABELS>
+				<SEQ_LABELS>
+					<SEQUENCE seq_label="NA" data_block_name="NA" accession="NA"/>
+				</SEQ_LABELS>
+				<PROCESSING>
+					<PIPELINE>
+						<PIPE_SECTION section_name="SPACE_HOLDER">
+							<STEP_INDEX>0</STEP_INDEX>
+							<PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
+							<PROGRAM>upload-cghub-fastq</PROGRAM>
+							<VERSION>0.0.1</VERSION>
+							<NOTES>zip-fastq-external; UNCID:2149605</NOTES>
+						</PIPE_SECTION>
+					</PIPELINE>
+					<DIRECTIVES>
+						<alignment_includes_unaligned_reads>true</alignment_includes_unaligned_reads>
+						<alignment_marks_duplicate_reads>false</alignment_marks_duplicate_reads>
+						<alignment_includes_failed_reads>false</alignment_includes_failed_reads>
+					</DIRECTIVES>
+				</PROCESSING>
+			</REFERENCE_ALIGNMENT>
+		</ANALYSIS_TYPE>
+		<TARGETS>
+			<TARGET sra_object_type="SAMPLE" refcenter="TCGA" refname="66770b06-2cd6-4773-b8e8-5b38faa4f5a4" />
+		</TARGETS>
+		<DATA_BLOCK name="fastq.tar.gz">
+			<FILES>
+				<FILE checksum="4181ac122b0a09f28cde79a9c3d5af39" checksum_method="MD5" filetype="fasta" filename="UNCID_2149605.66770b06-2cd6-4773-b8e8-5b38faa4f5a4.130702_UNC9-SN296_0379_AC25KWACXX_6_ACTTGA.fastq.tar.gz" />
+			</FILES>
+		</DATA_BLOCK>
+	</ANALYSIS>
+</ANALYSIS_SET>

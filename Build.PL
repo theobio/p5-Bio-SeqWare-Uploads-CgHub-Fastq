@@ -16,6 +16,7 @@ my $builder = Module::Build->new(
         'Test::More'           => 0,
         'DBD::Mock'            => '0.018',  # Session objects required
         'Test::File::Contents' => 0,
+        'Test::Output'         => 0,
     },
     requires => {
         'perl' => '0.014',        # Safe eval/$@ as throw/catch for exception handling.
@@ -25,6 +26,7 @@ my $builder = Module::Build->new(
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],
     create_makefile_pl => 'traditional',
+    share_dir => 'share',
 );
 
 $builder->create_build_script();

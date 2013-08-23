@@ -348,6 +348,7 @@ sub doMeta() {
     # Tag upload as meta-completed
 
     eval {
+
         croak("doMeta() not implemented!\n")
     };
     if ($@) {
@@ -1259,6 +1260,7 @@ an error message.
 =cut
 
 sub _zip() {
+
     my $self = shift;
     my $dbh = shift;
 
@@ -1347,6 +1349,139 @@ sub _zip() {
     $self->{'_zipFileMd5'} = $md5result;
 
     return 1;
+}
+
+=head2 _changeUploadRunStage
+
+    $obj->_changeUploadRunStage( $dbh $fromStatus, $toStatus );
+
+=cut
+
+sub _changeUploadRunStage {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $fromStatus = shift;
+    my $toStatus = shift;
+
+    my $statusWasChanged;
+
+    # Parameter validation
+    unless ($dbh) {
+        croak ("_changeUploadRunStage() missing \$dbh parameter.");
+    }
+    unless ($fromStatus) {
+        croak ("_changeUploadRunStage() missing \$fromStatus parameter.");
+    }
+    unless ($toStatus) {
+        croak ("_changeUploadRunStage() missing \$toStatus parameter.");
+    }
+
+    # Setup SQL
+    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
+
+    my $selectionSQL =
+       "SELECT upload_id, metadata_dir, cghub_analysis_id, sample_id
+        FROM upload
+        WHERE u.target = ?
+          AND u.status = ?
+        ORDER by upload_id DESC limit 1";
+
+    if ($self->{'verbose'}) {
+        print ("SQL to find a lane in state $fromStatus:\n$selectionSQL\n");
+    }
+
+    my $updateSQL =
+       "UPDATE upload SET status = ? WHERE upload_id = ?";
+
+    if ($self->{'verbose'}) {
+        print ("SQL to set to state $toStatus:\n$updateSQL\n");
+    }
+
+    # DB transaction
+    eval {
+        $dbh->begin_work();
+        my $selectionSTH = $dbh->prepare( $selectionSQL );
+        $selectionSTH->execute(
+            $sqlTargetForFastqUpload,
+            $fromStatus,
+        );
+        my $rowHR = $selectionSTH->fetchrow_hashref();
+        $selectionSTH->finish();
+        if (! defined $rowHR) {
+            # Nothing to update - this is a normal exit
+            $dbh->commit();
+            $self->{'_sampleId'}           = undef;
+            $self->{'_fastqUploadId'}      = undef;
+            $self->{'_fastqUploadBaseDir'} = undef;
+            $self->{'_fastqUploadUuid'}    = undef;
+            $self->{'_fastqUploadDir'}     = undef;
+
+            $statusWasChanged = 0;
+        }
+        else {
+            # Update retrieved data, or die
+            $self->{'_sampleId'}           = $rowHR->{'sample_id'};
+            $self->{'_fastqUploadId'}      = $rowHR->{'upload_id'};
+            $self->{'_fastqUploadBaseDir'} = $rowHR->{'metadata_dir'};
+            $self->{'_fastqUploadUuid'}    = $rowHR->{'cghub_analysis_id'};
+            $self->{'_fastqUploadDir'} = File::Spec->catdir(
+                $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuid'}
+            );
+
+            if ($self->{'verbose'}) {
+                print( "Switching upload processing status from $fromStatus to $toStatus\n"
+                    . "; " . "SAMPLE: "           . $self->{'_sampleId'}
+                    . "; " . "UPLOAD_ID: "        . $self->{'_fastqUploadId'}
+                    . "; " . "UPLOAD_BASE_DIR: "  . $self->{'_fastqUploadBaseDir'}
+                    . "; " . "UPLOAD_UUID: "      . $self->{'_fastqUploadUuid'}
+                    . "\n");
+            }
+
+            unless (   $self->{'_sampleId'}
+                    && $self->{'_fastqUploadId'}
+                    && $self->{'_fastqUploadBaseDir'}
+                    && $self->{'_fastqUploadUuid'}
+            ) {
+                $self->{'error'} = "upload_switch_data_$fromStatus" . "_to_" . $toStatus;
+                croak "Failed to retrieve upload data when switching from $fromStatus to $toStatus.\n";
+            }
+            unless ( -d $self->{'_fastqUploadDir'} ) {
+               $self->{'error'} = "no_fastq_upload_dir_found";
+               croak "Failed to find the expected fastq upload dir: $self->{'_fastqUploadDir'}\n";
+           }
+
+            # Do update part of transaction
+            my $updateSTH = $dbh->prepare( $updateSQL );
+            $updateSTH->execute(
+                $toStatus,
+                $self->{'_fastqUploadId'},
+            );
+            if ($updateSTH->rows() != 1) {
+                $self->{'error'} = "upload_status_update_$fromStatus" . "_to_" . $toStatus;
+                croak "Updating upload status from $fromStatus to $toStatus failed:\n";
+            }
+            $updateSTH->finish();
+            $dbh->commit();
+
+            $statusWasChanged = 1;
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= "\nALSO: ***Rollback appeared to fail*** $@ \n";
+        }
+        if (! $self->{'error'}) {
+            $self->{'error'} = "upload_status_change_$fromStatus" . "_to_" . $toStatus;
+        }
+        croak "Switching upload status from $fromStatus to $toStatus failed: $error\n";
+    }
+
+    return $statusWasChanged;
 }
 
 =head1 AUTHOR

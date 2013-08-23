@@ -1,7 +1,7 @@
 bin/generate_cghub_metadata.pl
 bin/get_samples.pl
 bin/upload-cghub-fastq.pl
-bin/run_upload_cghub_fatq.sh
+bin/run_upload_cghub_fastq.sh
 Build.PL
 Changes
 lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm
@@ -11,6 +11,7 @@ MANIFEST.SKIP
 META.json
 META.yml
 README.md
+share/analysis_1.5.template.xml
 t/00-load.t
 t/Data/analysis.xml
 t/Data/experiment.xml
@@ -20,6 +21,7 @@ t/Data/run.xml
 t/Data/single_end.fastq
 t/Fastq.t
 t/manifest.t
+t/meta.t
 t/pod-coverage.t
 t/pod.t
 t/zip.t
