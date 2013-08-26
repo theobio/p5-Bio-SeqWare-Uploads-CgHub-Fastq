@@ -11,7 +11,7 @@ MANIFEST.SKIP
 META.json
 META.yml
 README.md
-share/analysis_1.5.template.xml
+share/SRA_1-5/analysis_fastq.xml.template
 t/00-load.t
 t/Data/analysis.xml
 t/Data/experiment.xml

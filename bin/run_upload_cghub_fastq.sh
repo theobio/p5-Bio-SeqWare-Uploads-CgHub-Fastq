@@ -12,8 +12,10 @@ export PERLBREW_HOME="/tmp/.perlbrew"
 source "${PERLBREW_ROOT}/etc/bashrc"
 perlbrew use uploadperl
 
-COMMAND="upload-cghub-fastq.pl --runMode ZIP"
+COMMAND="upload-cghub-fastq.pl --verbose --runMode ZIP"
 
+HOST=`hostname`
+DATE=`date`
 LOG_HEADING_MESSAGE=" $HOST $DATE"
 
 echo ""

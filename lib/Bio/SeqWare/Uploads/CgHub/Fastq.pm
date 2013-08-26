@@ -11,7 +11,9 @@ use Data::Dumper;
 use File::Spec;
 use File::Path qw(make_path);
 use File::Copy qw(cp);
+use File::ShareDir qw(dist_dir);  # Access data files from install.
 use DBI;
+use Template;
 
 =head1 NAME
 
@@ -100,9 +102,109 @@ sub new {
 
 sub getUuid() {
     my $class = shift;
-    my $uuid = `uuidgen`;
-    chomp $uuid;
+    my $uuid;
+
+    # Eval loop around system call, traps and rethrows error.
+    eval {
+        $uuid = `uuidgen`;
+        chomp $uuid;
+        if (! $uuid) {
+            die( "ERROR: silent failure." );
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        die( "ERROR: getUuid() failed:\n$error\n" );
+    }
     return $uuid;
+}
+
+=head2 reformatTimeStamp()
+
+    Bio::SeqWare::Uploads::CgHub::Fastq->reformatTimeStamp( $timeStamp );
+
+Takes a postgresql formatted timestamp (without time zone) and converts it to
+an aml time stamp by replacing the blank space between the date and time with
+a capital "T". Expects the incoming $timestamp to be formtted as
+C<qr/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\d{2}\.?\d*$/>
+
+=cut
+
+sub reformatTimeStamp() {
+    my $class = shift;
+    my $postgresTimestampWithoutTimeZone = shift;
+    if ($postgresTimestampWithoutTimeZone !~ /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.?\d*$/ ) {
+        croak( "Incorectly formatted time stamp: $postgresTimestampWithoutTimeZone\n"
+             . ' expected 24 hour fromat like "YYYY-MM-DD HH:MM:SS.frac'
+              . " with optional part. No other spaces allowed.\n"
+        );
+    }
+
+    my $xmlFormattedTimeStamp = $postgresTimestampWithoutTimeZone;
+    $xmlFormattedTimeStamp =~ s/ /T/;
+
+    return  $xmlFormattedTimeStamp;
+}
+
+=head2 getFileBaseName
+
+   my ($base, $ext) =
+       Bio::SeqWare::Uploads::CgHub::Fastq->getFileBaseName( "$filePath" );
+
+Given a $filePath, extracts the filename and returns the file base name $base
+and extension $ext. Everything up to the first "."  is returned as the $base,
+everything after as the $ext. $filePath may or may not include directories,
+relative or absolute, but the last element is assumed to be a filename (unless
+it ends with a directory marker, in which case it is treated the same as if
+$filePath was ""). If there is nothing before/after the ".", an empty string
+will be returned for the $base and/or $ext. If there is no ., $ext will be
+undef. Directory markers are "/", ".", or ".." on Unix
+
+=head3 Examples:
+
+             $filePath       $base        $ext
+    ------------------  ----------  ----------
+       "base.ext"           "base"       "ext"
+       "base.ext.more"      "base"  "ext.more"
+            "baseOnly"  "baseOnly"       undef
+           ".hidden"            ""    "hidden"
+       "base."              "base"          ""
+           "."                  ""          ""
+                    ""          ""       undef
+                 undef      (dies)            
+    "path/to/base.ext"      "base"       "ext"
+   "/path/to/base.ext"      "base"       "ext"
+    "path/to/"              ""           undef
+    "path/to/."             ""           undef
+    "path/to/.."            ""           undef
+
+=cut
+
+sub getFileBaseName {
+
+    my $class = shift;
+    my $path = shift;
+
+    if (! defined $path) {
+        croak "ERROR: Undefined parmaeter, getFileBaseName().\n";
+    }
+
+    my ($vol, $dir, $file) = File::Spec->splitpath( $path );
+    if ($file eq "") {
+        return ("", undef);
+    }
+    $file =~ /^([^\.]*)(\.?)(.*)$/;
+    my ($base, $ext);
+    if ($2 eq '.') {
+        ($base, $ext) = ("", "");
+    }
+    if ($1) {
+        $base = $1;
+    }
+    if ($3) {
+        $ext = $3;
+    }
+    return ($base, $ext);
 }
 
 =head1 INSTANCE METHODS
@@ -301,12 +403,12 @@ sub doZip {
         if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
              croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
         }
-        $self->_tagLaneToUpload($dbh, "zip_running");
+        $self->_tagLaneToUpload($dbh, "zip_running" );
         $self->_getFilesToZip( $dbh );
         $self->_zip( $dbh );
         $self->_insertFile( $dbh );
         $self->_insertUploadFileRecord( $dbh );
-        $self->_updateUploadStatus( $dbh, "zip_completed");
+        $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, "zip_completed");
     };
     if ($@) {
         my $error = $@;
@@ -335,7 +437,7 @@ To $obj, adds
 
 =cut
 
-sub doMeta() {
+sub doMeta {
     my $self = shift;
     my $dbh = shift;
 
@@ -348,8 +450,10 @@ sub doMeta() {
     # Tag upload as meta-completed
 
     eval {
-
-        croak("doMeta() not implemented!\n")
+        my $uploadId = $self->_changeUploadRunStage( $dbh, 'zip_completed', 'meta_running' );
+        my $dataHR = $self->_getTemplateData( $dbh, $uploadId );
+        my $outFile = $self->_makeFileFromTemplate( $dataHR, "analysis.xml", "analysis_fastq.xml.template");
+        $self->_updateUploadStatus( $dbh, $uploadId, "meta_completed");
     };
     if ($@) {
         my $error = $@;
@@ -947,9 +1051,12 @@ sub _getFilesToZip {
         );
     }
 
-    unless ($self->{'_workflowRunId'}            && $self->{'_flowcell'}
-        && $self->{'_laneIndex'}               && $self->{'_fastqs'}->[0]->{'filePath'}
-        && $self->{'_fastqs'}->[0]->{'md5sum'} && $self->{'_fastqs'}->[0]->{'processingId'}
+    unless ($self->{'_workflowRunId'}
+        && $self->{'_flowcell'}
+        && defined $self->{'_laneIndex'}
+        && $self->{'_fastqs'}->[0]->{'filePath'}
+        && $self->{'_fastqs'}->[0]->{'md5sum'}
+        && $self->{'_fastqs'}->[0]->{'processingId'}
     ) {
         $self->{'error'} = 'fastq_file_1_data';
         croak "Missing data for fastq file 1."
@@ -973,9 +1080,12 @@ sub _getFilesToZip {
             );
         }
 
-        unless (   $row2HR->{'workflow_run_id'}          && $row2HR->{'flowcell'}
-                && $row2HR->{'lane_index'}              && $self->{'_fastqs'}->[1]->{'filePath'}
-                && $self->{'_fastqs'}->[1]->{'md5sum'}  && $self->{'_fastqs'}->[1]->{'processingId'}
+        unless ($row2HR->{'workflow_run_id'}
+            && $row2HR->{'flowcell'}
+            && defined $row2HR->{'lane_index'}
+            && $self->{'_fastqs'}->[1]->{'filePath'}
+            && $self->{'_fastqs'}->[1]->{'md5sum'}
+            && $self->{'_fastqs'}->[1]->{'processingId'}
         ) {
             $self->{'error'} = 'fastq_file_2_data';
             croak "Missing data for fastq file 2."
@@ -1019,9 +1129,10 @@ sub _updateUploadStatus {
 
     my $self = shift;
     my $dbh = shift;
+    my $uploadId = shift;
     my $newStatus = shift;
-    if (! defined $newStatus || ! ($self->{'_fastqUploadId'}) ) {
-        croak "Can't update upload record ID = $self->{'_fastqUploadId'}"
+    if (! defined $newStatus || ! ($uploadId) ) {
+        croak "Can't update upload record ID = $uploadId"
         . " to status = '$newStatus'.";
     }
     my $updateSQL =
@@ -1034,7 +1145,7 @@ sub _updateUploadStatus {
     eval {
         $dbh->begin_work();
         my $updateSTH = $dbh->prepare($updateSQL);
-        $updateSTH->execute($newStatus, $self->{'_fastqUploadId'});
+        $updateSTH->execute($newStatus, $uploadId);
         my $rowsAffected = $updateSTH->rows();
         $updateSTH->finish();
 
@@ -1052,9 +1163,9 @@ sub _updateUploadStatus {
         if ($@) {
             $error .= " ALSO: error rolling back _updateUploadStatus transaction: $@\n";
         }
-        croak "Failed to update status of $self->{'_fastqUploadId'} to $newStatus: $error\n";
+        croak "Failed to update status of $uploadId to $newStatus: $error\n";
     }
-    
+
     return 1;
 }
 
@@ -1354,6 +1465,17 @@ sub _zip() {
 =head2 _changeUploadRunStage
 
     $obj->_changeUploadRunStage( $dbh $fromStatus, $toStatus );
+    
+Loks for an upload record with the given $fromStatus status. If can't find any,
+just returns undef. If finds one, then changes its status to the given $toStatus
+and returns the upload.upload_id of the specified record.
+
+This does not set error as failure would likely be redundant.
+
+Croaks without parameters, if there are db errors reported, or if no uploadId
+can be retirived.
+
+Sets '_fastqUploadDir'
 
 =cut
 
@@ -1364,7 +1486,7 @@ sub _changeUploadRunStage {
     my $fromStatus = shift;
     my $toStatus = shift;
 
-    my $statusWasChanged;
+    my $uploadId;
 
     # Parameter validation
     unless ($dbh) {
@@ -1381,7 +1503,7 @@ sub _changeUploadRunStage {
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
     my $selectionSQL =
-       "SELECT upload_id, metadata_dir, cghub_analysis_id, sample_id
+       "SELECT upload_id
         FROM upload
         WHERE u.target = ?
           AND u.status = ?
@@ -1392,7 +1514,9 @@ sub _changeUploadRunStage {
     }
 
     my $updateSQL =
-       "UPDATE upload SET status = ? WHERE upload_id = ?";
+       "UPDATE upload
+        SET status = ?
+        WHERE upload_id = ?";
 
     if ($self->{'verbose'}) {
         print ("SQL to set to state $toStatus:\n$updateSQL\n");
@@ -1402,60 +1526,35 @@ sub _changeUploadRunStage {
     eval {
         $dbh->begin_work();
         my $selectionSTH = $dbh->prepare( $selectionSQL );
-        $selectionSTH->execute(
-            $sqlTargetForFastqUpload,
-            $fromStatus,
+        $selectionSTH->execute( $sqlTargetForFastqUpload, $fromStatus,
         );
         my $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
         if (! defined $rowHR) {
             # Nothing to update - this is a normal exit
             $dbh->commit();
-            $self->{'_sampleId'}           = undef;
-            $self->{'_fastqUploadId'}      = undef;
-            $self->{'_fastqUploadBaseDir'} = undef;
-            $self->{'_fastqUploadUuid'}    = undef;
-            $self->{'_fastqUploadDir'}     = undef;
-
-            $statusWasChanged = 0;
+            $uploadId = undef;  # Just to be clear.
         }
         else {
             # Update retrieved data, or die
-            $self->{'_sampleId'}           = $rowHR->{'sample_id'};
-            $self->{'_fastqUploadId'}      = $rowHR->{'upload_id'};
-            $self->{'_fastqUploadBaseDir'} = $rowHR->{'metadata_dir'};
-            $self->{'_fastqUploadUuid'}    = $rowHR->{'cghub_analysis_id'};
-            $self->{'_fastqUploadDir'} = File::Spec->catdir(
-                $self->{'_fastqUploadBaseDir'}, $self->{'_fastqUploadUuid'}
-            );
+            $uploadId = $rowHR->{'upload_id'};
 
             if ($self->{'verbose'}) {
                 print( "Switching upload processing status from $fromStatus to $toStatus\n"
-                    . "; " . "SAMPLE: "           . $self->{'_sampleId'}
-                    . "; " . "UPLOAD_ID: "        . $self->{'_fastqUploadId'}
-                    . "; " . "UPLOAD_BASE_DIR: "  . $self->{'_fastqUploadBaseDir'}
-                    . "; " . "UPLOAD_UUID: "      . $self->{'_fastqUploadUuid'}
+                    . "; " . "UPLOAD_ID: " . $uploadId
                     . "\n");
             }
 
-            unless (   $self->{'_sampleId'}
-                    && $self->{'_fastqUploadId'}
-                    && $self->{'_fastqUploadBaseDir'}
-                    && $self->{'_fastqUploadUuid'}
-            ) {
+            unless ( $uploadId ) {
                 $self->{'error'} = "upload_switch_data_$fromStatus" . "_to_" . $toStatus;
                 croak "Failed to retrieve upload data when switching from $fromStatus to $toStatus.\n";
             }
-            unless ( -d $self->{'_fastqUploadDir'} ) {
-               $self->{'error'} = "no_fastq_upload_dir_found";
-               croak "Failed to find the expected fastq upload dir: $self->{'_fastqUploadDir'}\n";
-           }
 
             # Do update part of transaction
             my $updateSTH = $dbh->prepare( $updateSQL );
             $updateSTH->execute(
                 $toStatus,
-                $self->{'_fastqUploadId'},
+                $uploadId,
             );
             if ($updateSTH->rows() != 1) {
                 $self->{'error'} = "upload_status_update_$fromStatus" . "_to_" . $toStatus;
@@ -1463,8 +1562,6 @@ sub _changeUploadRunStage {
             }
             $updateSTH->finish();
             $dbh->commit();
-
-            $statusWasChanged = 1;
         }
     };
     if ($@) {
@@ -1481,7 +1578,182 @@ sub _changeUploadRunStage {
         croak "Switching upload status from $fromStatus to $toStatus failed: $error\n";
     }
 
-    return $statusWasChanged;
+    return $uploadId;
+}
+
+=head2 _getTemplateData
+
+    $obj->_getTemplateData( $dbh );
+
+=cut
+
+sub _getTemplateData {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadId = shift;
+
+    if (! $uploadId) {
+        $self->{'error'} = 'bad_get_data_param';
+        croak "ERROR: Missing \$uploadId parameter for _getTemplateData\n";
+    }
+
+    my $selectAllSQL =
+       "SELECT vf.tmstmp            as file_timestamp,
+               vf.tcga_uuid         as sample_tcga_uuid,
+               l.sw_accession       as lane_accession,
+               vf.file_sw_accession as file_accession,
+               vf.md5sum            as file_md5sum,
+               vf.file_path,
+               u.metadata_dir       as fastq_upload_basedir,
+               u.cghub_analysis_id  as fastq_upload_uuid
+        FROM upload u, upload_file uf, vw_files vf, lane l
+        WHERE u.upload_id = ?
+          AND u.upload_id = uf.upload_id
+          AND uf.file_id = vf.file_id";
+
+    if ($self->{'verbose'}) {
+        print ("SQL to get template data:\n$selectAllSQL\n");
+    }
+
+    my $data = {};
+    eval {
+        my $selectionSTH = $dbh->prepare( $selectAllSQL );
+        $selectionSTH->execute( $uploadId );
+        my $rowHR = $selectionSTH->fetchrow_hashref();
+#        $selectionSTH->finish();
+        my $fileName = (File::Spec->splitpath( $rowHR->{'file_path'} ))[2];
+        my $localFileLink =
+            "UNCID_"
+            . $rowHR->{'file_accession'} . '.'
+            . $rowHR->{'sample_tcga_uuid'} . '.'
+            . $fileName;
+
+        $data = {
+            'program_version'    => $VERSION,
+            'sample_tcga_uuid'   => $rowHR->{'sample_tcga_uuid'},
+            'lane_accession'     => $rowHR->{'lane_accession'},
+            'file_md5sum'        => $rowHR->{'file_md5sum'},
+            'file_accession'     => $rowHR->{'file_accession'},
+            'upload_file_name'   => $localFileLink,
+            'uploadIdAlias'      => "upload $uploadId",
+            'file_path_base'     => 
+                (Bio::SeqWare::Uploads::CgHub::Fastq->getFileBaseName(
+                    $rowHR->{'file_path'}
+                ))[0],
+            'analysis_date'      =>
+                Bio::SeqWare::Uploads::CgHub::Fastq->reformatTimeStamp(
+                    $rowHR->{'file_timestamp'}
+                ),
+        };
+        if ($self->{'verbose'}) {
+            print( "Template Data:\n" );
+            for my $key (sort keys %$data) {
+                print ("\t\"$key\" = \"$data->{$key}\"\n" );
+            }
+
+        }
+        for my $key (sort keys %$data) {
+            if (! defined $data->{$key} || length $data->{$key} == 0) {
+                croak("No value obtained for template data element \'$key\'\n");
+            }
+        }
+
+        $self->{'_fastqUploadDir'} = File::Spec->catdir(
+                    $rowHR->{'fastq_upload_basedir'},
+                    $rowHR->{'fastq_upload_uuid'},
+        );
+        if (! -d $self->{'_fastqUploadDir'}) {
+            die("Can't find fastq upload targed directory \"$data->{'_fastqUploadDir'}\"\n");
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = 'collecting_data';
+        croak ("Failed collecting data for template use: $@");
+    }
+
+    return $data;
+}
+
+=head2 _makeFileFromTemplate
+
+  $obj->_makeFileFromTemplate( $dataHR, $outFile );
+  $obj->_makeFileFromTemplate( $dataHR, $outFile, $templateFile );
+
+Takes the $dataHR of template values and uses it to fill in the
+a template ($templateFile) and generate an output file ($outFile). Returns
+the absolute path to the created $outFile file, or dies with error.
+When $outFile and/or $templateFile are relative, default direcotries are
+used from the object. The $tempateFile is optional, if not given, uses
+$outFile.template as the template name.
+
+USES
+
+    'templateBaseDir' = Absolute basedir to use if $templateFile is relative.
+    'xmlSchema'       = Schema version, used as subdir under templateBaseDir
+                        if $templateFile is relative.
+    '_fastqUploadDir' = Absolute basedir to use if $outFile is relative.
+
+=cut
+
+sub _makeFileFromTemplate {
+
+    my $self   = shift;
+    my $dataHR = shift;
+    my $outFile = shift;
+    my $templateFile = shift;
+
+    if (! $templateFile) {
+        $templateFile = $outFile . ".template";
+    }
+
+    my $outAbsFilePath;
+    my $templateAbsFilePath;
+
+
+    if ( File::Spec->file_name_is_absolute( $outFile )) {
+        $outAbsFilePath = $outFile
+    }
+    else {
+        $outAbsFilePath = File::Spec->catfile( $self->{'_fastqUploadDir'}, $outFile );
+    }
+
+    if ( File::Spec->file_name_is_absolute( $templateFile )) {
+         $templateAbsFilePath = $templateFile
+    }
+    else {
+        $templateAbsFilePath = File::Spec->catfile(
+            $self->{'templateBaseDir' },
+            $self->{'xmlSchema' },
+            $templateFile
+        );
+    }
+
+    if ($self->{'verbose'}) {
+        print(
+            "TEMPLATE: $templateAbsFilePath\n"
+            ."OUTFILE: $outAbsFilePath\n"
+            ."DATA: \n" . Dumper($dataHR)
+        );
+    }
+    eval {
+        my $templateManagerConfigHR = {
+            'ABSOLUTE' => 1,
+        };
+        my $templateManager = Template->new( $templateManagerConfigHR );
+        my $ok = $templateManager->process( $templateAbsFilePath, $dataHR, $outAbsFilePath  );
+        if (! $ok) {
+            die( $templateManager->error() . "\n");
+        }
+        unless (-f $outAbsFilePath) {
+            die( "Can't find the file I should have just created: $outAbsFilePath\n" );
+        }
+    };
+    if ($@) {
+        die( "$@\n" )
+    }
+    return $outAbsFilePath;
 }
 
 =head1 AUTHOR

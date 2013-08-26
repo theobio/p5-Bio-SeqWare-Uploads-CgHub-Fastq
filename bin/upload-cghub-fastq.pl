@@ -6,6 +6,7 @@ use strict;
 use Pod::Usage;
 use Getopt::Long;
 use Data::Dumper;
+use File::ShareDir qw(dist_dir);
 
 use Bio::SeqWare::Config;
 use Bio::SeqWare::Uploads::CgHub::Fastq;
@@ -34,12 +35,22 @@ if ($opt->{'verbose'}) {
     print Dumper( $opt );
 }
 
+# Main program run loop, wrapped in top level error handler.
+# $self->{'error'} should be set before any untrapped die or croak.
+my $instance;
 eval {
-    my $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
+    $instance = Bio::SeqWare::Uploads::CgHub::Fastq->new( $opt );
     $instance->run();
 };
 if ($@) {
-    die "Program died with error:\n$@\n";
+    my $error = $@;
+    chomp $error;
+    if ( $instance->{'error'} ) {
+        die "ERROR - \"$instance->{'error'}\" detected;\n$error\n";
+    }
+    else {
+        die "FATAL ERROR - \"unexpected_failure\". Program died with unexpected error;\n$error\n";
+    }
 }
 
 
@@ -84,16 +95,25 @@ upload-cghub-fastq [options]
 
 =head1 DESCRIPTION
 
-Run the cghub upload process for FastQ files. Reads some of its options from
-the seqware config file, all options can be over-ridden by command line
-options, but no option is required.
+Each sample that has already had its bam file uploaded to cgHub is processed
+through this script to zip and upload its fastq files. Normally run by cron,
+this script reads some of its options from the seqware config file
+(./seqware/settings) on the machine hosting the cron. All options, including the
+config file options, can be over-ridden from the command line. No command line
+option is required.
 
-Breaks the task into four pieces, each of which has its own C<--runMode>.
-The default runMode is "ALL" which runs each of the four pieces in turn.
+Zipping and uploading fastq files to cgHub is broken into four separate tasks
+each of which has its own C<--runMode>. The default runMode is "ALL" which runs
+each of the four tasks in turn: "ZIP" "META", "VALIDATE", and then "SUBMIT".
+
 
 =cut
 
-=head2 runMode
+=head1 OPTIONS
+
+=over 4
+
+=item runMode
 
 The C<--runMode> parameter detemines what this program does when invoked, and
 can be any of the following 5 values. (default is "ALL").
@@ -122,13 +142,15 @@ Generates the meta-data for upload for this sample.
 
 Validates the meta-data associated with this sample.
 
-=item UPLOAD
+=item SUBMIT
 
 Does the upload.
 
 =item ALL
 
-Run all steps, in order ("ZIP", "META", "VALIDATE", "UPLOAD").
+Run all steps, in order ("ZIP", "META", "VALIDATE", "SUBMIT").
+
+=back
 
 =back
 
@@ -141,8 +163,10 @@ sub _processCommandLine {
 
     # Local defaults
     my $optionsHR = {
-        'minFastqSize' => 10 * 1000 * 1000,
-        'runMode' => 'ALL',
+        'minFastqSize'     => 10 * 1000 * 1000,
+        'runMode'          => 'ALL',
+        'xmlSchema'        => 'SRA_1-5',
+        'templateBaseDir'  => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
     };
 
     # Combine local defaults with ()over-ride by) config file options
@@ -164,6 +188,9 @@ sub _processCommandLine {
         'minFastqSize=i'       => \$opt{'minFastqSize'},
         'rerun'                => \$opt{'rerun'},
         'runMode=s'            => \$opt{'runMode'},
+
+        'xmlSchema=s'          => \$opt{'xmlSchema'},
+        'templateBaseDir=s'    => \$opt{'templateBaseDir'},
 
 #        'sample=s'      => \$opt{'sample'},
 #        'flowcell=s'    => \$opt{'flowcell'},

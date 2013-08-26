@@ -10,7 +10,7 @@ use Bio::SeqWare::Config; # Access SeqWare settings file as options
 use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
-use Test::More 'tests' => 1 + 5;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 7;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 BEGIN {
@@ -45,10 +45,15 @@ my $MOCK_DBH = DBI->connect(
 # }
 #
 
-subtest( 'new()' => \&testNew );
-subtest( 'new(BAD)' => \&testNewBad );
-subtest( 'getAll()' => \&testGetAll );
-subtest( 'run()' => \&testRun );
+# Class methods
+subtest( 'new()'             => \&testNew              );
+subtest( 'new(BAD)'          => \&testNewBad           );
+subtest( 'getFileBaseName()' => \&test_getFileBaseName );
+subtest( 'getUuid()'         => \&test_getUuid         );
+
+# Object methods
+subtest( 'getAll()'            => \&testGetAll );
+subtest( 'run()'               => \&testRun );
 subtest( 'runNotImplemented()' => \&testRunNotImplemented );
 
 $MOCK_DBH->disconnect();
@@ -88,6 +93,73 @@ sub testNewBad {
         my $want = qr/^A hash-ref parameter is required\./;
         like( $got, $want, "error with non hash-ref param");
     }
+}
+
+sub test_getFileBaseName {
+	plan( tests => 35 );
+
+    # Filename parsing
+    is_deeply( [$CLASS->getFileBaseName( "base.ext"      )], ["base", "ext"        ], "base and extension"         );
+    is_deeply( [$CLASS->getFileBaseName( "base.ext.more" )], ["base",    "ext.more"], "base and extra extension"   );
+    is_deeply( [$CLASS->getFileBaseName( "baseOnly"      )], ["baseOnly", undef    ], "base only"                  );
+    is_deeply( [$CLASS->getFileBaseName( "base."         )], ["base",     ""       ], "base and dot, no extension" );
+    is_deeply( [$CLASS->getFileBaseName( ".ext"          )], ["",         "ext"    ], "hidden = extension only"    );
+    is_deeply( [$CLASS->getFileBaseName( "."             )], ["",          ""      ], "just dot"                   );
+    is_deeply( [$CLASS->getFileBaseName( ""              )], ["",          undef   ], "empty"                      );
+
+    # Path parsing
+    is_deeply( [$CLASS->getFileBaseName( "dir/to/base.ext"       )], ["base", "ext" ], "relative dir to file"   );
+    is_deeply( [$CLASS->getFileBaseName( "/abs/dir/to/base.ext"  )], ["base", "ext" ], "abssolute dir to file"  );
+    is_deeply( [$CLASS->getFileBaseName( "is/dir/base.ext/"      )], ["",     undef ], "relative dir, not file" );
+    is_deeply( [$CLASS->getFileBaseName( "/is/abs/dir/base.ext/" )], ["",     undef ], "absolute dir, not file" );
+    is_deeply( [$CLASS->getFileBaseName( "is/dir/base.ext/."     )], ["",     undef ], "relative dir, ends with /." );
+    is_deeply( [$CLASS->getFileBaseName( "/is/abs/dir/base.ext/.")], ["",     undef ], "absolute dir, ends with /." );
+
+    # Undefined input
+    eval {
+         $CLASS->getFileBaseName();
+    };
+    like( $@, qr/^ERROR: Undefined parmaeter, getFileBaseName\(\)\./, "Undefined param");
+
+    # Filename parsing with spaces
+    is_deeply( [$CLASS->getFileBaseName( " . "   )], [" ", " "  ], "base and extension are space"            );
+    is_deeply( [$CLASS->getFileBaseName( " . . " )], [" ", " . "], "base and each extra extension are space" );
+    is_deeply( [$CLASS->getFileBaseName( " "     )], [" ", undef], "base only, is space"                     );
+    is_deeply( [$CLASS->getFileBaseName( " ."    )], [" ", ""   ], "base as space and dot, no extension"     );
+    is_deeply( [$CLASS->getFileBaseName( ". "    )], ["",  " "  ], "hidden space = extension only"           );
+
+    # Path parsing
+    is_deeply( [$CLASS->getFileBaseName( "dir/to/ . "           )], [" ",    " "   ], "relative path, files are space"  );
+    is_deeply( [$CLASS->getFileBaseName( "dir/ /base.ext"       )], ["base", "ext" ], "relative path with space"        );
+    is_deeply( [$CLASS->getFileBaseName( " /to/base.ext"        )], ["base", "ext" ], "relative path start with space"  );
+    is_deeply( [$CLASS->getFileBaseName( "/abs/dir/to/ . "      )], [" ",    " "   ], "absolute path, files are spacee" );
+    is_deeply( [$CLASS->getFileBaseName( "/abs/dir/ /base.ext"  )], ["base", "ext" ], "absolute path with sapce"        );
+    is_deeply( [$CLASS->getFileBaseName( "dir/ /base.ext/"      )], ["",     undef ], "relative dir with space"         );
+    is_deeply( [$CLASS->getFileBaseName( " /to/base.ext/"       )], ["",     undef ], "relative dir starts with space"  );
+    is_deeply( [$CLASS->getFileBaseName( "/abs/dir/ /base.ext/" )], ["",     undef ], "absolute dir with space"         );
+
+    # Extra dots
+    is_deeply( [$CLASS->getFileBaseName( "base..ext" )], ["base", ".ext" ], "base .. extension"           );
+    is_deeply( [$CLASS->getFileBaseName( "base.."    )], ["base", "."    ], "base and .., no extension"   );
+    is_deeply( [$CLASS->getFileBaseName( "..ext"     )], ["",     ".ext" ], "no base, .., extension only" );
+    is_deeply( [$CLASS->getFileBaseName( ".."        )], ["",     "."    ], "just .."                     );
+
+    # Path parsing with double dots
+    is_deeply( [$CLASS->getFileBaseName( "dir/to/.."       )], ["", undef ], "relative path, .. file"  );
+    is_deeply( [$CLASS->getFileBaseName( "/abs/dir/to/.."  )], ["", undef ], "absolute path, .. file"  );
+    is_deeply( [$CLASS->getFileBaseName( "is/dir/../"      )], ["", undef ], "relative dir, .. as dir" );
+    is_deeply( [$CLASS->getFileBaseName( "/is/abs/dir/../" )], ["", undef ], "absolute dir, .. as dir" );
+
+    # Multiple Spaces
+
+}
+
+sub test_getUuid {
+	plan( tests => 1 );
+
+    my $got = $CLASS->getUuid();
+    # Note: \A absolute multiline string start, \z absolute end, AFTER last \n, if any.
+    like($got, qr/\A[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\z/i, "Match uuid format, NO TRAILING LINE BREAK")
 }
 
 sub testGetAll {

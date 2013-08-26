@@ -51,6 +51,7 @@ my $OPT_HR = { %$OPT,
     'uploadBamBaseDir'   => undef,
     'myName'       => 'DELETE_ME-upload-cghub-fastq_0.0.1',
     'rerun'        => 1,
+    'xmlSchema'    => 'SRA_1-5',
 };
 
 #
@@ -62,9 +63,9 @@ my $ZIP_FILE_META_TYPE   = 'application/tar-gz';
 my $ZIP_FILE_DESCRIPTION = "The fastq files from one lane's sequencing run, tarred and gzipped. May be one or two files (one file per end).";
 my $ZIP_FILE_FAKE_MD5    = "ABBACADABBA";
 
-my $FLOWCELL   = '130702_UNC9-SN296_0380_BC24VKACXX';
-my $LANE_INDEX = '1';
-my $BARCODE    = 'GATCAG';
+my $FLOWCELL   = '130619_UNC13-SN749_0277_BC293YACXX';
+my $LANE_INDEX = '0';
+my $BARCODE    = 'CTTGTA';
 my $BASE_NAME  = $FLOWCELL . "_" . ($LANE_INDEX + 1) . "_" . $BARCODE;
 
 my $EXPECTED_OUT_DIR = File::Spec->catdir(
@@ -105,7 +106,7 @@ subtest( '_doZip()' => \&test__doZip );
 #
 sub test_getUuid {
     plan( tests => 1 );
-    like( $CLASS->getUuid(), qr/[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i, "Is a regexp" );
+    like( $CLASS->getUuid(), qr/\A[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\z/i, "Is a uuid, no trailing \n" );
 }
 
 sub test__findNewLaneToZip {
@@ -424,7 +425,7 @@ sub test__tagLaneToUpload {
 }
 
 sub test__getFilesToZip {
-    plan( tests => 52 );
+    plan( tests => 76 );
     my $sampleId = -19;
     my $laneId = -12;
     my $uploadId = -21;
@@ -436,20 +437,79 @@ sub test__getFilesToZip {
     my $wf1 = 613863;
     my $wf2 = 851553;
 
+    my @dbEventsOneCasavaFile = ({
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+        ]
+    });
+
+    my @dbEventsTwoCasavaFiles = ({
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+        ]
+    });
+
+    my @dbEventsOneSrfFile = ({
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [[]],
+    },
     {
-        my @dbEvents = ({
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [
-                [ 'file_path', 'md5sum', 'workflow_run_id',
-                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-            ]
-        });
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+        ]
+    });
+
+    my @dbEventsTwoSrfFiles = ({
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [[]],
+    },
+    {
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+        ]
+    });
+
+    my @dbEventsNoFiles = (({
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [[]],
+    },
+    {
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [[]],
+    }) );
+
+    {
 
         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( 'one613863', @dbEvents );
+            DBD::Mock::Session->new( 'one613863', @dbEventsOneCasavaFile );
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_laneId'} = $laneId;
@@ -467,22 +527,10 @@ sub test__getFilesToZip {
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one613863 processingId0" );
             is( $obj->{'_fastqs'}->[1], undef );
         }
-    }{
-        my @dbEvents = ({
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [
-                [ 'file_path', 'md5sum', 'workflow_run_id',
-                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
-            ]
-        });
-
+    }
+    {
         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( 'two613863', @dbEvents );
+            DBD::Mock::Session->new( 'two613863', @dbEventsTwoCasavaFiles );
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_laneId'} = $laneId;
@@ -502,25 +550,10 @@ sub test__getFilesToZip {
             is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $FASTQ2_MD5, "ok two613863 md5sum2" );
             is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two613863 processingId0" );
         }
-    }{
-        my @dbEvents = ({
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [[]],
-        },
-        {
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [
-                [ 'file_path', 'md5sum', 'workflow_run_id',
-                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-            ]
-        });
-
+    }
+    {
         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( 'one851553', @dbEvents );
+            DBD::Mock::Session->new( 'one851553', @dbEventsOneSrfFile );
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_laneId'} = $laneId;
@@ -538,27 +571,11 @@ sub test__getFilesToZip {
             is( $obj->{'_fastqs'}->[0]->{'processingId'}, $processingId1, "ok one851553 processingId0" );
             is( $obj->{'_fastqs'}->[1], undef );
         }
-    }{
-        my @dbEvents = ({
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [[]],
-        },
-        {
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [
-                [ 'file_path', 'md5sum', 'workflow_run_id',
-                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
-                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
-            ]
-        });
+    }
+    {
 
         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( 'two851553', @dbEvents );
+            DBD::Mock::Session->new( 'two851553', @dbEventsTwoSrfFiles );
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_laneId'} = $laneId;
@@ -578,22 +595,11 @@ sub test__getFilesToZip {
             is( $obj->{'_fastqs'}->[1]->{'md5sum'}, $FASTQ2_MD5, "ok two851553 md5sum0" );
             is( $obj->{'_fastqs'}->[1]->{'processingId'}, $processingId2, "ok two851553 processingId1" );
         }
-    }{
-        my $newStatus = "error_zip_no-db-fastq-files";
-        my @dbEvents = (({
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [[]],
-        },
-        {
-            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'srf2fastq\'/msi,
-            'bound_params' => [ $sampleId, $laneId],
-            'results'  => [[]],
-        }) );
-
+    }
+    {
 
         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( 'noFiles', @dbEvents );
+            DBD::Mock::Session->new( 'noFiles', @dbEventsNoFiles );
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_laneId'} = $laneId;
@@ -613,7 +619,180 @@ sub test__getFilesToZip {
             is( $obj->{'_fastqs'}, undef, "ok noFiles _fastqs" );
         }
     }
+    {
+        my @dbEventsTwoFilesMissingData = ({
+            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+            'bound_params' => [ $sampleId, $laneId],
+            'results'  => [
+                [ 'file_path', 'md5sum', 'workflow_run_id',
+                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+            ]
+        });
 
+        my $loaclOpts = { %$OPT_HR };
+        $loaclOpts->{'_laneId'} = $laneId;
+        $loaclOpts->{'_sampleId'} = $sampleId;
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[2] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no (file2) _fastqWorkflowRunId val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no (file2) _fastqWorkflowRunId val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[2] = $fastqWorkflowRunId;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[3] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no (file2) _flowcell val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no (file2) _flowcell val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[3] = $FLOWCELL;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[4] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no (file2) _laneIndex val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no (file2) _laneIndex val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[4] = $LANE_INDEX;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[2] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1\./, "error if no (file1) _fastqWorkflowRunId val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no (file1) _fastqWorkflowRunId val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[2] = $fastqWorkflowRunId;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[3] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1\./, "error if no (file1) _flowcell val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no  (file1) _flowcell val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[3] = $FLOWCELL;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[4] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1\./, "error if no (file1) _laneIndex val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no (file1) _laneIndex val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[4] = $LANE_INDEX;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[0] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no _fastqs->1->filePath val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no _fastqs->1->filePath val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[0] = $FASTQ2;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[1] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no _fastqs->1>md5sum val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no _fastqs->1->md5sum val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[1] = $FASTQ2_MD5;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[6] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 2\./, "error if no _fastqs->1->processingId val" );
+                is( $obj->{'error'}, 'fastq_file_2_data', "error message name if no _fastqs->1->processingId val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[6] = $processingId2;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[0] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1./, "error if no _fastqs->0->filePath val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no _fastqs->0->filePath val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[0] = $FASTQ1;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[1] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1\./, "error if no _fastqs->0>md5sum val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no _fastqs->0->md5sum val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[1] = $FASTQ1_MD5;
+        }
+        {
+            my $obj = $CLASS->new( $loaclOpts );
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[6] = undef;
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
+            eval {
+                $obj->_getFilesToZip( $MOCK_DBH );
+            };
+            {
+                like( $@, qr/Missing data for fastq file 1\./, "error if no _fastqs->0->processingId val" );
+                is( $obj->{'error'}, 'fastq_file_1_data', "error message name if no _fastqs->0->processingId val" );
+            }
+            $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[6] = $processingId1;
+        }
+    }
 }
 
 sub test__zip {
@@ -634,18 +813,18 @@ sub test__zip {
     my $obj1File = $CLASS->new( $OPT_HR );
     $obj1File->{'minFastqSize'} = 10;
     $obj1File->{'_fastqs'}      = $oneFastq;
-    $obj1File->{'_flowcell'}    = '130702_UNC9-SN296_0380_BC24VKACXX';
-    $obj1File->{'_laneIndex'}   = '1';
-    $obj1File->{'_barcode'}     = 'GATCAG';
+    $obj1File->{'_flowcell'}    = $FLOWCELL;
+    $obj1File->{'_laneIndex'}   = $LANE_INDEX;
+    $obj1File->{'_barcode'}     = $BARCODE;
     $obj1File->{'_uploadId'}    = -21;
     $obj1File->{'rerun'}        = 1;
 
     my $obj2File = $CLASS->new( $OPT_HR );
     $obj2File->{'minFastqSize'} = 10;
     $obj2File->{'_fastqs'}      = $twoFastq;
-    $obj2File->{'_flowcell'}    = '130702_UNC9-SN296_0380_BC24VKACXX';
-    $obj2File->{'_laneIndex'}   = '1';
-    $obj2File->{'_barcode'}     = 'GATCAG';
+    $obj2File->{'_flowcell'}    = $FLOWCELL;
+    $obj2File->{'_laneIndex'}   = $LANE_INDEX;
+    $obj2File->{'_barcode'}     = $BARCODE;
     $obj2File->{'_uploadId'}    = -21;
     $obj2File->{'rerun'}        = 1;
 
@@ -764,7 +943,7 @@ sub test__updateUploadStatus {
     my $obj = $CLASS->new( $OPT_HR );
     $obj->{'_fastqUploadId'} = $uploadId;
 
-    my @dbSesssion = ({
+    my @dbSession = ({
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
@@ -777,9 +956,9 @@ sub test__updateUploadStatus {
     });
 
     $MOCK_DBH->{'mock_session'} =
-        DBD::Mock::Session->new( $newStatus, @dbSesssion );
+        DBD::Mock::Session->new( $newStatus, @dbSession );
     {
-        is( 1, $obj->_updateUploadStatus( $MOCK_DBH, $newStatus ), "Updated upload status." );
+        is( 1, $obj->_updateUploadStatus( $MOCK_DBH, $uploadId, $newStatus ), "Updated upload status." );
     }
 
 }
