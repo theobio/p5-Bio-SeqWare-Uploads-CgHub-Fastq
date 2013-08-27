@@ -26,3 +26,4 @@ for consideration.
 
 2013-08-21 v0.000.001 [MAJOR] Fold in current BAM upload code.
 2013-08-21 v0.000.001 [API]   dbh as object property?
+2013-08-27 v0.000.002 [API]   Allow specifying config file to program?

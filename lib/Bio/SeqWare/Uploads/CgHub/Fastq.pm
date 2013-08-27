@@ -30,7 +30,7 @@ Version 0.000.003   # PRE_RELEASE
 
 =cut
 
-our $VERSION = '0.000003';   # PRE-RELEASE
+our $VERSION = '0.000003';
 
 =head1 SYNOPSIS
 

@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.003   PRE-RELEASE
+Version 0.000.003   \# PRE\_RELEASE
 
 # SYNOPSIS
 
@@ -40,6 +40,47 @@ Creates and returns a Bio::SeqWare::Uploads::CgHub::Fastq object. Takes
 no parameters, providing one is a fatal error.
 
 ## getUuid()
+
+## reformatTimeStamp()
+
+    Bio::SeqWare::Uploads::CgHub::Fastq->reformatTimeStamp( $timeStamp );
+
+Takes a postgresql formatted timestamp (without time zone) and converts it to
+an aml time stamp by replacing the blank space between the date and time with
+a capital "T". Expects the incoming $timestamp to be formtted as
+`qr/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\d{2}\.?\d*$/`
+
+## getFileBaseName
+
+    my ($base, $ext) =
+        Bio::SeqWare::Uploads::CgHub::Fastq->getFileBaseName( "$filePath" );
+
+Given a $filePath, extracts the filename and returns the file base name $base
+and extension $ext. Everything up to the first "."  is returned as the $base,
+everything after as the $ext. $filePath may or may not include directories,
+relative or absolute, but the last element is assumed to be a filename (unless
+it ends with a directory marker, in which case it is treated the same as if
+$filePath was ""). If there is nothing before/after the ".", an empty string
+will be returned for the $base and/or $ext. If there is no ., $ext will be
+undef. Directory markers are "/", ".", or ".." on Unix
+
+### Examples:
+
+              $filePath       $base        $ext
+     ------------------  ----------  ----------
+        "base.ext"           "base"       "ext"
+        "base.ext.more"      "base"  "ext.more"
+             "baseOnly"  "baseOnly"       undef
+            ".hidden"            ""    "hidden"
+        "base."              "base"          ""
+            "."                  ""          ""
+                     ""          ""       undef
+                  undef      (dies)            
+     "path/to/base.ext"      "base"       "ext"
+    "/path/to/base.ext"      "base"       "ext"
+     "path/to/"              ""           undef
+     "path/to/."             ""           undef
+     "path/to/.."            ""           undef
 
 # INSTANCE METHODS
 
@@ -375,6 +416,45 @@ Actually does the zipping, and returns 1, or dies setting 'error' and returning
 an error message.
 
 
+
+## \_changeUploadRunStage
+
+    $obj->_changeUploadRunStage( $dbh $fromStatus, $toStatus );
+    
+
+Loks for an upload record with the given $fromStatus status. If can't find any,
+just returns undef. If finds one, then changes its status to the given $toStatus
+and returns the upload.upload\_id of the specified record.
+
+This does not set error as failure would likely be redundant.
+
+Croaks without parameters, if there are db errors reported, or if no uploadId
+can be retirived.
+
+Sets '\_fastqUploadDir'
+
+## \_getTemplateData
+
+    $obj->_getTemplateData( $dbh );
+
+## \_makeFileFromTemplate
+
+    $obj->_makeFileFromTemplate( $dataHR, $outFile );
+    $obj->_makeFileFromTemplate( $dataHR, $outFile, $templateFile );
+
+Takes the $dataHR of template values and uses it to fill in the
+a template ($templateFile) and generate an output file ($outFile). Returns
+the absolute path to the created $outFile file, or dies with error.
+When $outFile and/or $templateFile are relative, default direcotries are
+used from the object. The $tempateFile is optional, if not given, uses
+$outFile.template as the template name.
+
+USES
+
+    'templateBaseDir' = Absolute basedir to use if $templateFile is relative.
+    'xmlSchema'       = Schema version, used as subdir under templateBaseDir
+                        if $templateFile is relative.
+    '_fastqUploadDir' = Absolute basedir to use if $outFile is relative.
 
 # AUTHOR
 

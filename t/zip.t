@@ -16,7 +16,6 @@ use Bio::SeqWare::Uploads::CgHub::Fastq;
 
 use DBD::Mock;
 use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test Modules
-use Test::Exception;
 use Test::File::Contents;
 use Test::More 'tests' => 14;   # Run this many Test::More compliant subtests.
 

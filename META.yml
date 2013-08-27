@@ -6,6 +6,7 @@ build_requires:
   DBD::Mock: 0.018
   Test::File::Contents: 0
   Test::More: 0
+  Test::Output: 0
 configure_requires:
   Module::Build: 0
 dynamic_config: 1
@@ -18,12 +19,15 @@ name: Bio-SeqWare-Uploads-CgHub-Fastq
 provides:
   Bio::SeqWare::Uploads::CgHub::Fastq:
     file: lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm
-    version: 0.000002
+    version: 0.000003
 requires:
   Bio::SeqWare::Config: 0.000003
-  Bio::SeqWare::Db::Connection: 0.000002
+  Bio::SeqWare::Db::Connection: 0.000004
+  DBD::Pg: 0
   DBI: 0
+  File::ShareDir: 1.00
+  Template: 0
   perl: 0.014
 resources:
   license: http://opensource.org/licenses/gpl-license.php
-version: 0.000002
+version: 0.000003

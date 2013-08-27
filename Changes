@@ -1,6 +1,11 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.003 PRE-RELEASE
+0.000.003 2013-08-27 12:15:00
+ [MAJOR] - Implemented META step, creating analysis.xml for upload
+         - Modified flags for switching workflow steps (including for ZIP)
+ [API]   - Added options to support META, including some to
+             Bio::SeqWare::Config (requires v0.000.003)
+ [BUG]   - ZIP now works on samples with lane_index of "0".
 
 0.000.002 2013-08-21 23:00:00
  [BUG]   - Cleaned up error propagation in executable.
