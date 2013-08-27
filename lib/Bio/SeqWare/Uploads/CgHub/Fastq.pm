@@ -1505,8 +1505,8 @@ sub _changeUploadRunStage {
     my $selectionSQL =
        "SELECT upload_id
         FROM upload
-        WHERE u.target = ?
-          AND u.status = ?
+        WHERE target = ?
+          AND status = ?
         ORDER by upload_id DESC limit 1";
 
     if ($self->{'verbose'}) {
