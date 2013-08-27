@@ -1,7 +1,9 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.004   PRE-RELEASE
-
+0.000.004 2013-08-27 19:00:00
+ [API]  - Added optional "stage" arg to shell script, (default=ZIP)
+ [ADD]  - META now creates link in fastqUpload dir to zip file.
+ [BUG]  - META SQL errors fixed.
 
 0.000.003 2013-08-27 12:15:00
  [MAJOR] - Implemented META step, creating analysis.xml for upload

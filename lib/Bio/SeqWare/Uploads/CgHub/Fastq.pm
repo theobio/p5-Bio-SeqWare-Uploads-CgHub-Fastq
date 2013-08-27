@@ -26,11 +26,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.004   # PRE_RELEASE
+Version 0.000.004
 
 =cut
 
-our $VERSION = '0.000004';    # PRE_RELEASE
+our $VERSION = '0.000004';
 
 =head1 SYNOPSIS
 
@@ -1599,7 +1599,7 @@ sub _getTemplateData {
     }
 
     my $selectAllSQL =
-       "SELECT vf.tmstmp            as file_timestamp,
+       "SELECT vf.tstmp             as file_timestamp,
                vf.tcga_uuid         as sample_tcga_uuid,
                l.sw_accession       as lane_accession,
                vf.file_sw_accession as file_accession,
@@ -1666,6 +1666,8 @@ sub _getTemplateData {
         if (! -d $self->{'_fastqUploadDir'}) {
             die("Can't find fastq upload targed directory \"$data->{'_fastqUploadDir'}\"\n");
         }
+
+        symlink( $rowHR->{'file_path'}, File::Spec->catfile( $self->{'_fastqUploadDir'}, $localFileLink ));
     };
     if ($@) {
         my $error = $@;

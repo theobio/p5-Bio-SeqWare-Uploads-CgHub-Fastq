@@ -16,6 +16,7 @@ use Test::Output;               # Test STDOUT and STDERR output.
 use DBD::Mock;
 use Test::File::Contents;
 use Test::More 'tests' => 4;    # Run this many Test::More compliant subtests
+use File::Copy qw(cp);          # Copy a file
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
@@ -200,8 +201,8 @@ sub test__changeUploadRunStage {
         } "SQL to find a lane in state $oldStatus:\n"
         . "SELECT upload_id
         FROM upload
-        WHERE u.target = ?
-          AND u.status = ?
+        WHERE target = ?
+          AND status = ?
         ORDER by upload_id DESC limit 1"
         . "\n"
         . "SQL to set to state $newStatus:\n"
@@ -316,7 +317,7 @@ sub test__changeUploadRunStage {
 }
 
 sub test__getTemplateData {
-    plan( tests => 9 );
+    plan( tests => 14 );
 
     # Chosen to match analysis.xml data file
     my $uploadId       = 7851;
@@ -377,6 +378,26 @@ sub test__getTemplateData {
         }
     }
     {
+        my $realFile = File::Spec->catfile( $TEMP_DIR, "single_end.fastq");
+        {
+            ok( cp("t/Data/single_end.fastq", $TEMP_DIR), "Setup for link check ok" );
+            ok( (-f $realFile), "File copied" );
+        }
+        $dbSession[0]->{'results'}->[1]->[5] = $realFile;
+        my $obj = $CLASS->new( $OPT_HR );
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "Die on missing fastq upload dir", @dbSession );
+        my $data = $obj->_getTemplateData( $MOCK_DBH, $uploadId );
+        my $link = File::Spec->catfile( $obj->{'_fastqUploadDir'} , $data->{'upload_file_name'} );
+        {
+            ok( (-f $link ), "file exists: $link" );
+            ok( (-l $link ), "link exists: $link" );
+            files_eq( $link, $realFile, "Link points to real file");
+
+        }
+        $dbSession[0]->{'results'}->[1]->[5] = "$filePath";
+    }
+    {
          my $obj = $CLASS->new( $OPT_HR );
          $obj->{'verbose'} = 1;
          $MOCK_DBH->{'mock_session'} =
@@ -385,7 +406,7 @@ sub test__getTemplateData {
         stdout_is {
             $obj->_getTemplateData( $MOCK_DBH, $uploadId )
         } "SQL to get template data:\n"
-        . "SELECT vf.tmstmp            as file_timestamp,
+     . "SELECT vf.tstmp             as file_timestamp,
                vf.tcga_uuid         as sample_tcga_uuid,
                l.sw_accession       as lane_accession,
                vf.file_sw_accession as file_accession,
