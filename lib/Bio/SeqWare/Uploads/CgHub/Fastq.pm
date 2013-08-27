@@ -5,15 +5,18 @@ use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
 # $Carp::Verbose = 1;
-use Bio::SeqWare::Config;   # Read the seqware config file
-use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
-use Data::Dumper;
-use File::Spec;
-use File::Path qw(make_path);
-use File::Copy qw(cp);
+use Data::Dumper;  # Quick data structure printing
+
+use File::Spec;                   # Normal path handling
+use File::Path qw(make_path);     # Create multiple-directories at once
+use File::Copy qw(cp);            # Copy a file
 use File::ShareDir qw(dist_dir);  # Access data files from install.
+
 use DBI;
 use Template;
+
+use Bio::SeqWare::Config;                  # Read the seqware config file
+use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
 
 =head1 NAME
 
@@ -104,18 +107,15 @@ sub getUuid() {
     my $class = shift;
     my $uuid;
 
-    # Eval loop around system call, traps and rethrows error.
-    eval {
-        $uuid = `uuidgen`;
-        chomp $uuid;
-        if (! $uuid) {
-            die( "ERROR: silent failure." );
-        }
-    };
-    if ($@) {
-        my $error = $@;
-        die( "ERROR: getUuid() failed:\n$error\n" );
+    $uuid = `uuidgen`;
+    if ($?) {
+        die ('ERROR: `uuidgen` exited with error, exit value was: ' . $?);
     }
+    if (! defined $uuid ) {
+        die( 'ERROR: `uuidgen` failed silently');
+    }
+
+    chomp $uuid;
     return $uuid;
 }
 

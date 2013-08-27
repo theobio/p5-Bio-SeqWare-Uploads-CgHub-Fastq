@@ -13,11 +13,32 @@ use DBD::Mock;
 use Test::More 'tests' => 1 + 7;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
+
 BEGIN {
+	*CORE::GLOBAL::readpipe = \&mock_readpipe; # Must be before use
 	use_ok( 'Bio::SeqWare::Uploads::CgHub::Fastq' );
 }
 
+my $mock_readpipe = { 'mock' => 0, 'exit' => 0, 'ret' => undef };
+
+sub mock_readpipe {
+    my $var = shift;
+    my $retVal;
+    if ( $mock_readpipe->{'mock'} && $mock_readpipe->{'exit'}) {
+        $? = $mock_readpipe->{'exit'};
+        $retVal = undef;  # Just to be definite
+    }
+    elsif ($mock_readpipe->{'mock'} && ! $mock_readpipe->{'exit'}) {
+        $retVal = $mock_readpipe->{'ret'};
+    }
+    else {
+        $retVal = CORE::readpipe($var);
+    }
+    return $retVal;
+}
+
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
+
 
 my $CONFIG = Bio::SeqWare::Config->new();
 my $OPT = $CONFIG->getKnown();
@@ -155,11 +176,30 @@ sub test_getFileBaseName {
 }
 
 sub test_getUuid {
-	plan( tests => 1 );
+	plan( tests => 3 );
 
-    my $got = $CLASS->getUuid();
-    # Note: \A absolute multiline string start, \z absolute end, AFTER last \n, if any.
-    like($got, qr/\A[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\z/i, "Match uuid format, NO TRAILING LINE BREAK")
+    {
+        $mock_readpipe->{'mock'} = 1;
+        eval {
+            $CLASS->getUuid();
+        };
+        like( $@, qr/ERROR: `uuidgen` failed silently/, "Error on uuidgen returning nothing");
+        $mock_readpipe->{'mock'} = 0;
+    }
+    {
+        $mock_readpipe->{'mock'} = 1;
+        $mock_readpipe->{'exit'} = 4;
+        eval {
+            $CLASS->getUuid();
+        };
+        like( $@, qr/ERROR: `uuidgen` exited with error, exit value was: 4/, "Error on uuidgen returning error status.");
+        $mock_readpipe->{'mock'} = 0;
+    }
+    {
+        my $got = $CLASS->getUuid();
+        # Note: \A absolute multiline string start, \z absolute end, AFTER last \n, if any.
+        like($got, qr/\A[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\z/i, "Match uuid format, NO TRAILING LINE BREAK")
+    }
 }
 
 sub testGetAll {

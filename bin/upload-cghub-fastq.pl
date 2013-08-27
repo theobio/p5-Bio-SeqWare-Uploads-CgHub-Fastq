@@ -23,6 +23,7 @@ Version 0.000.003   PRE_RELEASE
 
 =cut
 
+# Actual version should be the same as the base module.
 our $VERSION = $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION;   # PRE-RELEASE
 
 # TODO: consider allow pre-parsing cli parameters for config file name.
@@ -61,35 +62,30 @@ upload-cghub-fastq [options]
     Options:
 
         # Parameters normally from config file
-        --dbUser      SeqWare database login user name
-        --dbPassword  SeqWare database login password
-        --dbSchema    SeqWare database name
-        --dbHost      SeqWare database host machine
-        --dataRoot    Seqware data root dir. All data under here
-                          (like $dataRoot/flowcell/workflow/...)
-        --uploadFastqDir Data root for upload file archiving
+        --dbUser           SeqWare database login user name
+        --dbPassword       SeqWare database login password
+        --dbSchema         SeqWare database name
+        --dbHost           SeqWare database host machine
+        --dataRoot         Seqware data root dir.
+        --uploadFastqDir   Data root for meta-data for uploaded fastqs
+        --uploadBamBaseDir Data root for meta-data for uploaded bams
+
+        # Run mode
+        --runMode     "ZIP" | "META"   | "VALIDATE"
+                            | "UPLOAD" | "ALL" (default)
+
+        # Content and locations
+        --xmlSchema        SRA schema name, sub-dir for templates
+        --templateBaseDir  Root dir for templates, contains xmlSchema dirs
 
         # Validation rules
         --minFastqSize  Error if fastq size < this, in bytes
         --rerun         Deletes output file on collision instead of failing
 
-        # Selection constraints [NOT CURRENTLY IMPLEMENTED]
-        --sample      Sample name string (title)
-        --flowcell    Sequencer run flowcell name
-        --lane        The lane.lane number (lane_index + 1)
-        --lane_index  The lane.lane_index number (0 based)
-        --barcode     The lane.barcode sequece identification tag
-        --uploadId    Upload table id of bam upload to cghub
-        --bamFileId   File id of bam file uploaded to cghub
-
         # Other parameters
         --verbose     Print status messages while running
         --version     Report version and exit
         --help        Show this message
-
-        # Run mode is routinely used only as the default
-        --runMode     "ZIP" | "META"   | "VALIDATE"
-                            | "UPLOAD" | "ALL" (default)
 
 =cut
 
@@ -100,12 +96,30 @@ through this script to zip and upload its fastq files. Normally run by cron,
 this script reads some of its options from the seqware config file
 (./seqware/settings) on the machine hosting the cron. All options, including the
 config file options, can be over-ridden from the command line. No command line
-option is required.
+option is required, but the runMode option is often used.
 
 Zipping and uploading fastq files to cgHub is broken into four separate tasks
 each of which has its own C<--runMode>. The default runMode is "ALL" which runs
 each of the four tasks in turn: "ZIP" "META", "VALIDATE", and then "SUBMIT".
+Each mode can run independently, and will only run on samples where the prior
+mode succeeded. The initial "ZIP" mode only runs on samples that have had their
+bam files successfuly upload. To signal completion of each step for a sample,
+the status of the CGHUB_FASTQ upload record is set to <step>_finished, e.g. to
+"zip_finished". when any step, except ZIP is run, it figures out what to work
+on by looking for an upload reacord with target CGHUB_FASTQ and status
+"<parent_step>_finished" and claims it by setting its status to
+"<step>_running". When done every step changes this same records status to
+<step>_completed, or to <step>_failed_<error_name> if fails. The first step
+decides in needs to run based on the existance of an upload record with targed
+"CGHUB" and an external status of "live". Zip then claim this sample for
+processing by inserting a new record for a sample with target "CGHUB_FASTQ"
+and status of "zip_running".
 
+The database tracks processing state for every sample, and processing changes
+are made atomically (finding a record and setting its state are done within a
+transaction) this program can be run in parallel. Each parallel run only
+works on one step of one sample at a time, and will only work on a sample-step
+that is not already running.
 
 =cut
 
@@ -185,22 +199,13 @@ sub _processCommandLine {
         'uploadFastqBaseDir=s' => \$opt{'uploadFastqBaseDir'},
         'uploadBamBaseDir=s'   => \$opt{'uploadBamBaseDir'},
         'dataRoot=s'           => \$opt{'dataRoot'},
+
         'minFastqSize=i'       => \$opt{'minFastqSize'},
         'rerun'                => \$opt{'rerun'},
         'runMode=s'            => \$opt{'runMode'},
 
         'xmlSchema=s'          => \$opt{'xmlSchema'},
         'templateBaseDir=s'    => \$opt{'templateBaseDir'},
-
-#        'sample=s'      => \$opt{'sample'},
-#        'flowcell=s'    => \$opt{'flowcell'},
-#        'lane=i'        => \$opt{'lane'},
-#        'lane_index=i'  => \$opt{'lane_index'},
-#        'barcode=s'     => \$opt{'barcode'},
-#        'uploadId=i'    => \$opt{'uploadId'},
-#        'bamFileId=i'   => \$opt{'bamFileId'},
-#        'laneId=i'      => \$opt{'laneId'},
-#        'sampleType=i'  => \$opt{'sampleType'},
 
         'verbose'      => \$opt{'verbose'},
         'version'      => sub {
