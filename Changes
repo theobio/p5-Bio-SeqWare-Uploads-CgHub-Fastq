@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.004   PRE-RELEASE
+
+
 0.000.003 2013-08-27 12:15:00
  [MAJOR] - Implemented META step, creating analysis.xml for upload
          - Modified flags for switching workflow steps (including for ZIP)

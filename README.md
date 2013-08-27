@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.003   \# PRE\_RELEASE
+Version 0.000.004   \# PRE\_RELEASE
 
 # SYNOPSIS
 

@@ -19,12 +19,12 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.003
+Version 0.000.004      # PRE_RELEASE
 
 =cut
 
 # Actual version should be the same as the base module.
-our $VERSION = $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION;
+our $VERSION = $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION;     # PRE_RELEASE
 
 # TODO: consider allow pre-parsing cli parameters for config file name.
 
