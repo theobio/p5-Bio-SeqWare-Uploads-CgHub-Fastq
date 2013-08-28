@@ -6,9 +6,9 @@
 
 VERSION="0.000.004"
 
-STAGE="ZIP"
+STAGE="$1"
 if [[ -z "$1" ]]; then
-    STAGE=$1
+    STAGE="ZIP"
 fi
 
 # Enable perlbrew and switch to uncseqperl until done

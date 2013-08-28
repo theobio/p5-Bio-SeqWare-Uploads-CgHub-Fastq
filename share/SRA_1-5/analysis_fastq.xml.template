@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <ANALYSIS_SET 
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
-  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.xsd?view=co">
+  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.analysis.xsd?view=co">
 	<ANALYSIS center_name="UNC-LCCC" alias="[% uploadIdAlias %]" analysis_date="[% analysis_date %]" analysis_center="UNC-LCCC">
 		<TITLE>Fastq tar.gz for CgHub upload</TITLE>
 		<STUDY_REF accession="SRP000677" refcenter="NHGRI" refname="phs000178" />
