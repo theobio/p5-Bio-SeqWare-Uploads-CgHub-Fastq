@@ -1,8 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.005, includes
-ROADMAP - [MAJOR] - Implement VALIDATION step
-
+This is release v0.000.006.
 
 # ROADMAP
 
