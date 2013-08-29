@@ -1,7 +1,13 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.005 2013-08-28 22:15:00
+ [ADD]  - Added throttle to upload-cghub-fastq.pl based on server load.
+ [BUG]  - Fixed analysis.xml schema name in template.
+ [BUG]  - Fixed SQL getting the wrong lane.sw_accession in analysis data.
+ [DOC]  - POD for upload-cghub-fastq.pl specific options.
+
 0.000.004 2013-08-27 19:00:00
- [API]  - Added optional "stage" arg to shell script, (default=ZIP)
+ [API]  - Added optional "stage" arg to shell script, (default=ZIP).
  [ADD]  - META now creates link in fastqUpload dir to zip file.
  [BUG]  - META SQL errors fixed.
 

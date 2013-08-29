@@ -417,7 +417,8 @@ sub test__getTemplateData {
         FROM upload u, upload_file uf, vw_files vf, lane l
         WHERE u.upload_id = ?
           AND u.upload_id = uf.upload_id
-          AND uf.file_id = vf.file_id"
+          AND uf.file_id = vf.file_id
+          AND vf.lane_id = l.lane_id"
         . "\n"
         . "Template Data:\n"
         . "\t\"analysis_date\" = \"$xmlTimestamp\"\n"
