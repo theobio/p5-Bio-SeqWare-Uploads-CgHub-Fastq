@@ -7,8 +7,8 @@ use Data::Dumper;         # Quick error messages
 
 use Cwd;                          # Get current working directory.
 use File::ShareDir qw(dist_dir);  # Access data files from install.
-use File::Temp;           # Temporary directory and contents, auto-removed
-                          #    when out of scope.
+use File::Temp;                   # Temporary directory and contents, auto-removed
+                                  #    when out of scope.
 
 use Bio::SeqWare::Config; # Read the seqware config file
 
@@ -35,10 +35,10 @@ sub mock_readpipe {
     return $retVal;
 }
 
-my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
+my $CLASS    = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
 my $TEMP_DIR = File::Temp->newdir();  # Auto-delete self and contents when out of scope
-my $CONFIG = Bio::SeqWare::Config->new();
+my $CONFIG   = Bio::SeqWare::Config->new();
 
 my $OPT = $CONFIG->getKnown();
 my $OPT_HR = { %$OPT,
@@ -61,16 +61,16 @@ my $MOCK_DBH = DBI->connect(
 # TESTING
 #
 
-subtest( 'doValidate()'    => \&test_doValidate   );
-subtest( '_validateMeta()' => \&test__validateMeta );
+subtest( 'doSubmitMeta()'  => \&test_doSubmitMeta  );
+subtest( '_submitMeta()'   => \&test__submitMeta   );
 
-sub test_doValidate {
-    plan( tests => 1 );
+sub test_doSubmitMeta {
+     plan( tests => 1 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
-    my $oldStatus = "meta_completed";
-    my $newStatus = "validate_running";
-    my $finalStatus = "validate_completed";
+    my $oldStatus = "validate_completed";
+    my $newStatus = "submit_meta_running";
+    my $finalStatus = "submit_meta_completed";
 
     my $uploadId       = 7851;
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -78,8 +78,16 @@ sub test_doValidate {
     my $uploadDir = File::Spec->catdir( "$TEMP_DIR", $uploadUuid );
     mkdir($uploadDir);
 
-    my $fakeValidMessage = "Fake (GOOD) Validate Return\n"
-                          . "Metadata Validation Succeeded.\n";
+    my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
+                          . "Metadata Submission Succeeded.\n";
+
+    my $fakeErrorMessage = "Fake (BAD) Submission Return\n"
+                          . "Error    : Your are attempting to upload to a uuid"
+                          . " which already exists within the system and is not"
+                          . "in the submitted or uploading state. This is not allowed.\n";
+
+    my $fakeUnknowMessage = "Fake (UNKNOWN) Submission Return\n"
+                          . "This is not the result you are looking for.\n";
 
     my @dbSession = ({
         'statement' => 'BEGIN WORK',
@@ -114,10 +122,10 @@ sub test_doValidate {
         $mock_readpipe->{'mock'} = 1;
         $mock_readpipe->{'ret'} = $fakeValidMessage;
 	    my $obj = $CLASS->new( $OPT_HR );
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "doValidateOk", @dbSession );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "doSubmitMetaOk", @dbSession );
 	    {
-            my $shows = "doValidate returns 1 when succesful";
-            my $got = $obj->doValidate( $MOCK_DBH );
+            my $shows = "doSubmitMeta returns 1 when succesful";
+            my $got = $obj->doSubmitMeta( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, $shows);
 	    }
@@ -125,13 +133,20 @@ sub test_doValidate {
     }
 }
 
-sub test__validateMeta {
+sub test__submitMeta {
 
-    plan( tests => 13 );
-    my $fakeValidMessage = "Fake (GOOD) Validate Return\n"
-                          . "Metadata Validation Succeeded.\n";
-    my $fakeNotValidMessage   = "Fake (BAD) Validate Return\n"
-                          . "Error: oops.\n";
+    plan( tests => 20 );
+    my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
+                          . "Metadata Submission Succeeded.\n";
+
+    my $fakeKnownErrorMessage = "Fake (BAD) Submission Return\n"
+                          . "Error    : Your are attempting to upload to a uuid"
+                          . " which already exists within the system and is not"
+                          . " in the submitted or uploading state. This is not allowed.\n";
+
+    my $fakeUnknowMessage = "Fake (UNKNOWN) Submission Return\n"
+                          . "Oops.\n";
+
     my $uploadHR = {
         'metadata_dir' => "t",
         'cghub_analysis_id' => 'Data',
@@ -144,7 +159,7 @@ sub test__validateMeta {
 	    my $obj = $CLASS->new( $opts_HR );
 	    {
             my $shows = "Success when returns valid message";
-            my $got = $obj->_validateMeta( $uploadHR );
+            my $got = $obj->_submitMeta( $uploadHR );
             my $want = 1;
             is( $got, $want, $shows);
 	    }
@@ -157,7 +172,7 @@ sub test__validateMeta {
 	    {
             my $shows = "Directory doesn't change";
             my $want = getcwd();
-            $obj->_validateMeta( $uploadHR );
+            $obj->_submitMeta( $uploadHR );
             my $got = getcwd();
             is( $got, $want, $shows);
 	    }
@@ -165,23 +180,54 @@ sub test__validateMeta {
     }
     {
         $mock_readpipe->{'mock'} = 1;
-        $mock_readpipe->{'exit'} = 1;
-        $mock_readpipe->{'ret'} = $fakeNotValidMessage;
+        $mock_readpipe->{'ret'} = $fakeKnownErrorMessage;
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_validateMeta( $uploadHR );
+            $retval = $obj->_submitMeta( $uploadHR );
+        };
+        my $error = $@;
+	    {
+            my $shows = "Error if return known bad no error";
+            my $want = qr/Submit meta error: Already submitted\./s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+	    {
+            my $shows = "Error describes return (known bad, no error)";
+            my $escapedMessage = quotemeta( $fakeKnownErrorMessage );
+            my $want = qr/Actaul submit meta result was:.{1,2}$escapedMessage/s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+	    {
+            my $shows = "Error describes command (known bad, no error)";
+            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $want = qr/Original command was:.{1,2}$escapedMessage/s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+        $mock_readpipe->{'mock'} = 0;
+    }
+    {
+        $mock_readpipe->{'mock'} = 1;
+        $mock_readpipe->{'exit'} = 1;
+        $mock_readpipe->{'ret'} = $fakeUnknowMessage;
+	    my $obj = $CLASS->new( $opts_HR );
+        my $retval;
+        eval {
+            $retval = $obj->_submitMeta( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error describes exit value when command exits with error and ret value";
-            my $want = qr/Validation error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
+            my $want = qr/Submit meta error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes returned value when command exits with error and ret value";
-            my $escapedMessage = quotemeta( $fakeNotValidMessage );
+            my $escapedMessage = quotemeta( $fakeUnknowMessage );
             my $want = qr/Output was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -203,12 +249,12 @@ sub test__validateMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_validateMeta( $uploadHR );
+            $retval = $obj->_submitMeta( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error describes exit value when command exits with error but no ret value";
-            my $want = qr/Validation error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
+            my $want = qr/Submit meta error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -234,12 +280,12 @@ sub test__validateMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_validateMeta( $uploadHR );
+            $retval = $obj->_submitMeta( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if no error but no return text.";
-            my $want = qr/Validation error: neither error nor result generated\. Strange\./;
+            my $want = qr/Submit meta error: neither error nor result generated\. Strange\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -254,23 +300,23 @@ sub test__validateMeta {
     }
     {
         $mock_readpipe->{'mock'} = 1;
-        $mock_readpipe->{'ret'} = $fakeNotValidMessage;
+        $mock_readpipe->{'ret'} = $fakeUnknowMessage;
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_validateMeta( $uploadHR );
+            $retval = $obj->_submitMeta( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if return value indicates invalid";
-            my $want = qr/Validation error: Apparently failed to validate\..{1,2}/s;
+            my $want = qr/Submit meta error: Apparently failed to submit\..{1,2}/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes return (invalid return)";
-            my $escapedMessage = quotemeta( $fakeNotValidMessage );
-            my $want = qr/Actaul validation result was:.{1,2}$escapedMessage/s;
+            my $escapedMessage = quotemeta( $fakeUnknowMessage );
+            my $want = qr/Actaul submit meta result was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -283,5 +329,45 @@ sub test__validateMeta {
 	    }
         $mock_readpipe->{'mock'} = 0;
     }
+        {
+        $mock_readpipe->{'mock'} = 1;
+        $mock_readpipe->{'exit'} = 27;
+        $mock_readpipe->{'ret'} = $fakeKnownErrorMessage;
+	    my $obj = $CLASS->new( $opts_HR );
+        my $retval;
+        eval {
+            $retval = $obj->_submitMeta( $uploadHR );
+        };
+        my $error = $@;
+	    {
+            my $shows = "Error if return known bad with error";
+            my $want = qr/Submit meta error: Already submitted\./s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+	    {
+            my $shows = "Error if return known bad with error";
+            my $want = qr/Exited with error value \"$mock_readpipe->{'exit'}\"\./s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+	    {
+            my $shows = "Error describes return (known bad, with error)";
+            my $escapedMessage = quotemeta( $fakeKnownErrorMessage );
+            my $want = qr/Actaul submit meta result was:.{1,2}$escapedMessage/s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+	    {
+            my $shows = "Error describes command (known bad, with error)";
+            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $want = qr/Original command was:.{1,2}$escapedMessage/s;
+            my $got = $error;
+            like( $got, $want, $shows);
+	    }
+        $mock_readpipe->{'mock'} = 0;
+        $mock_readpipe->{'exit'} = 0;
+    }
+    
 
 }

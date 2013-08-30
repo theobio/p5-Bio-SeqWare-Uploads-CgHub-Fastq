@@ -37,7 +37,9 @@ our $VERSION = '0.000007';    # Pre-release
 
     use Bio::SeqWare::Uploads::CgHub::Fastq;
 
-    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
+    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new( $paramHR );
+    $obj->run();
+    $obj->run( "ZIP" );
 
 =cut
 
@@ -67,10 +69,14 @@ supported by the processing logic.
 
 =head2 new()
 
-    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
+    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new( $paramHR );
 
 Creates and returns a Bio::SeqWare::Uploads::CgHub::Fastq object. Takes
-no parameters, providing one is a fatal error.
+a hash-ref of parameters, each of which is made avaialble to the object.
+Don't use parameters beging with a _ (underscore). These may be overwritten.
+The parameter 'error' is cleared automatically, 'myName' is set to
+"upload-cghub-fastq_$VERSION" where version is the version of this module,
+like 0.000007"
 
 =cut
 
@@ -85,13 +91,13 @@ sub new {
         'error'   => undef,
         'myName' => 'upload-cghub-fastq_0.0.1',
 
-        '_laneId'    => undef,
-        '_sampleId'  => undef,
+        '_laneId'         => undef,
+        '_sampleId'       => undef,
         '_fastqUploadId'  => undef,
-        '_fastqs'    => undef,
-        '_zipFile'   => undef,
-        '_zipMd5Sum' => undef,
-        '_zipFileId' => undef,
+        '_fastqs'         => undef,
+        '_zipFile'        => undef,
+        '_zipMd5Sum'      => undef,
+        '_zipFileId'      => undef,
         '_fastqProcessingId'      => undef,
         '_fastqWorkflowAccession' => undef,
         %copy,
@@ -214,21 +220,32 @@ sub getFileBaseName {
 
 =head2 run()
 
-  $obj->run();
-  my @allowedModes = qw( ZIP META VALIDATE UPLOAD ALL ); # Case unimportant
-  $obj->run( "all" );
+    $obj->run();
+  # or
+    $obj->run( $runMode );
+    # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ ALL
+  # or
+    $obj->run( $runMode, $dbh );
+  # or
+    $obj->run( undef, $dbh );
 
 This is the "main" program loop, associated with running C<upload-cghub-fastq>
-This method can be called with or without a parameter. If called without a
-parameter, it uses the value of the instance's 'runMode' property. All allowed
-values for that parameter are supported here: case insenistive "ZIP", "META",
-"VALIDATE", "UPLOAD", and "ALL". Each parameter causes the associated "do..."
-method to be invoked, although "ALL"" causes each of the 4 do... methods to be
-invoked in order as above.
+This method can be called with or without a parameter. If called with no
+$runmode, it uses the current value of the instance's 'runMode' property. All
+allowed values for that parameter are supported here: case insenistive "ZIP",
+"META", "VALIDATE", "SUBMIT_META", "SUBMIT_FASTQ" and "ALL". Each parameter
+causes the associated "do..." method to be invoked, although "ALL"" causes
+each of the 5 do... methods to be invoked in order as above.
 
-This method will should either succeed and return 1 or set $self->{'error'}
-and returns undef.
+This method will either succeed and return 1 or set $self->{'error'}
+and die. If an upload record id is known when an error occurs, the upload.status
+field for that upload record will be updated to "$STAGE_failed_$ERROR", where
+$STAGE is the stage in which the error occurs, and $ERROR is $self->{'error'}.
 
+This method calls itself to allow nested processing, and allows passing a
+database handle as a parameter to support that. If not provided, a connection
+will be created. Due to the length of some of the processing, the passed
+connection may be invalid an fail.
 =cut
 
 sub run {
@@ -274,7 +291,8 @@ sub run {
             $self->run('ZIP', $dbh);
             $self->run('META', $dbh);
             $self->run('VALIDATE', $dbh);
-            $self->run('UPLOAD', $dbh);
+            $self->run('SUBMIT_META', $dbh);
+            $self->run('SUBMIT_FASTQ', $dbh);
         }
         elsif ($runMode eq "ZIP" ) {
             $self->doZip( $dbh );
@@ -285,8 +303,11 @@ sub run {
         elsif ($runMode eq "VALIDATE" ) {
             $self->doValidate( $dbh );
         }
-        elsif ($runMode eq "UPLOAD" ) {
-            $self->doUpload( $dbh );
+        elsif ($runMode eq "SUBMIT_META" ) {
+            $self->doSubmitMeta( $dbh );
+        }
+        elsif ($runMode eq "SUBMIT_FASTQ" ) {
+            $self->doSubmitFastq( $dbh );
         }
         else {
             $self->{'error'} = "unknown_run_mode";
@@ -318,7 +339,7 @@ sub run {
     }
 }
 
-=head2 = doZip()
+=head2 doZip()
 
  $obj->doZip( $dbh );
 
@@ -488,18 +509,43 @@ sub doValidate() {
     return 1;
 }
 
-=head2 = doUpload()
+=head2 = doSubmitMeta()
 
- $obj->doUpload();
+    $obj->doSubmitMeta();
 
 =cut
 
-sub doUpload() {
+sub doSubmitMeta() {
     my $self = shift;
     my $dbh = shift;
 
     eval {
-        croak("doUpload() not implemented!\n")
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'validate_completed', 'submit_meta_running' );
+        my $ok = _submitMeta( $uploadHR );
+        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_meta_completed");
+    };
+    if ($@) {
+        my $error = $@;
+        croak $error;
+    }
+
+    return 1;
+}
+
+=head2 = doSubmitFastq()
+
+    $obj->doSubmitFastq();
+
+=cut
+
+sub doSubmitFastq() {
+    my $self = shift;
+    my $dbh = shift;
+
+    eval {
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit_meta_completed', 'submit_fastq_running' );
+        my $ok = _submitFastq( $uploadHR );
+        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_fastq_completed");
     };
     if ($@) {
         my $error = $@;
@@ -1816,6 +1862,72 @@ sub _validateMeta {
     chdir( $oldCwd );
     return 1;
 }
+
+=head2 _submitMeta
+
+   $obj->_submitMeta();
+
+=cut
+
+sub _submitMeta {
+
+    my $uploadHR = shift;
+
+    my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
+    my $CGHUB_URL = 'https://cghub.ucsc.edu/';
+    my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
+    my $OK_SUBMIT_META_REGEXP = qr/Metadata Submission Succeeded\./m;
+    my $ERROR_RESUBMIT_META_REGEXP = qr/Error\s*: Your are attempting to upload to a uuid which already exists within the system and is not in the submitted or uploading state\./m;
+
+    my $fastqOutDir = File::Spec->catdir(
+        $uploadHR->{'metadata_dir'},
+        $uploadHR->{'cghub_analysis_id'}
+    );
+
+    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir";
+
+    my $oldCwd = getcwd();
+    chdir( $fastqOutDir );
+
+    my $errorMessage = "";
+    my $submitMetaResult = qx/$command/;
+
+    if ($?) {
+        # Unsure of exit value when get this message, so here twoce
+        if (! $submitMetaResult ) {
+            die ("Submit meta error: exited with error value \"$?\". No output was generated.\n"
+                . "Original command was:\n$command\n" );
+        }
+        elsif ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
+            die( "Submit meta error: Already submitted. Exited with error value \"$?\".\n"
+                . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+                . "Original command was:\n$command\n" );
+        }
+        else {
+            die ("Submit meta error: exited with error value \"$?\". Output was:\n$submitMetaResult\n"
+                . "Original command was:\n$command\n" );
+        }
+    }
+    if (! $submitMetaResult) {
+        die( "Submit meta error: neither error nor result generated. Strange.\n"
+                    . "Original command was:\n$command\n" );
+    }
+    if ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
+        die( "Submit meta error: Already submitted.\n"
+            . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+            . "Original command was:\n$command\n" );
+    }
+    if ( $submitMetaResult !~ $OK_SUBMIT_META_REGEXP ) {
+        die( "Submit meta error: Apparently failed to submit.\n"
+            . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+            . "Original command was:\n$command\n" );
+    }
+
+    chdir( $oldCwd );
+    return 1;
+
+}
+
 
 =head1 AUTHOR
 

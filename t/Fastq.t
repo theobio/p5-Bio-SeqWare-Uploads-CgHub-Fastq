@@ -10,7 +10,7 @@ use Bio::SeqWare::Config; # Access SeqWare settings file as options
 use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
-use Test::More 'tests' => 1 + 7;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 6;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -75,7 +75,6 @@ subtest( 'getUuid()'         => \&test_getUuid         );
 # Object methods
 subtest( 'getAll()'            => \&testGetAll );
 subtest( 'run()'               => \&testRun );
-subtest( 'runNotImplemented()' => \&testRunNotImplemented );
 
 $MOCK_DBH->disconnect();
 
@@ -257,17 +256,5 @@ sub testRun {
        my $got = $@;
        my $want = qr/^Failed to connect to the database/;
        like( $got, $want, "error if no dbh provided and can't be created from input");
-    }
-}
-
-sub testRunNotImplemented {
-	plan( tests => 1 );
-	{
-	   my $obj = $CLASS->new( {} );
-       $obj->{'dbh'} = $MOCK_DBH;
-	   eval{ $obj->run( "UPLOAD" ) };
-       my $got = $@;
-       my $want = qr/^doUpload\(\) not implemented/;
-       like( $got, $want, "error if runMode is UPLOAD");
     }
 }
