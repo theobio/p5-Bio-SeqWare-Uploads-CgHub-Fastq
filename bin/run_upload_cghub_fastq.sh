@@ -10,7 +10,7 @@
 # Set up defaults and initialize log.
 #
 
-VERSION="0.000.006"   # PRE-RELEASE
+VERSION="0.000.006"
 STAGE="$1"
 
 if [ -z "$STAGE" ]; then

@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.006   \# PRE-RELEASE
+Version 0.000.006
 
 # SYNOPSIS
 
@@ -424,14 +424,12 @@ an error message.
 
 Loks for an upload record with the given $fromStatus status. If can't find any,
 just returns undef. If finds one, then changes its status to the given $toStatus
-and returns the upload.upload\_id of the specified record.
+and returns that upload record as a HR with the column names as keys.
 
 This does not set error as failure would likely be redundant.
 
-Croaks without parameters, if there are db errors reported, or if no uploadId
+Croaks without parameters, if there are db errors reported, or if no upload
 can be retirived.
-
-Sets '\_fastqUploadDir'
 
 ## \_getTemplateData
 
@@ -455,6 +453,10 @@ USES
     'xmlSchema'       = Schema version, used as subdir under templateBaseDir
                         if $templateFile is relative.
     '_fastqUploadDir' = Absolute basedir to use if $outFile is relative.
+
+## \_validateMeta
+
+    self->_validateMeta();
 
 # AUTHOR
 

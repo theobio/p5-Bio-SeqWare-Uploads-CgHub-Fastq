@@ -1,14 +1,15 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.006.
+This is release v0.000.006 - Implements VALIDATION step
 
 # ROADMAP
 
 These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
-2013-08-21 v0.000.006 [MAJOR] - Implement VALIDATION step
 2013-08-21 v0.000.007 [MAJOR] - Implement UPLOAD step
+2013-08-29 v0.000.008 [ADD]   - Improve error handling
+2013-08-29 v0.000.009 [ADD]   - Generate all xml from scratch.
 
 # APPROVED / REJECTED
 
@@ -19,8 +20,7 @@ from "In consideration".
 2013-08-21 v0.000.001 [DOC] - Simplify module documentation
 2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
                               and test.
-2013-08-28 v0.000.005 [ADD] - Implement the --rerun and --<template>name opts
-2013-08-28 v0.000.005 [ADD] - Improve error handling by META
+2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
 
 # IN CONSIDERATION
 

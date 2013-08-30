@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.006   # PRE-RELEASE
+Version 0.000.006
 
 =cut
 
@@ -166,7 +166,16 @@ should not take more than a minute to run.
 
 =item VALIDATE
 
-Validates the meta-data associated with this sample.
+Validates the meta-data associated with this sample. Uses an external program
+to check a website and validate the data against existing data and well-formed
+constraints.
+
+When running VALIDATE mode, looks for an upload record with target "CGHUB_FASTQ"
+and status "meta_completed", and selects it by changing the status to
+"validate_running". When complete, changes the status to "validate_completed".
+Errors should change the status to "validate_failed<reason>" but that is not
+fully implemented. Probably just leaves them hanging as validate_running. This
+step should not take more than a minute to run.
 
 =item SUBMIT
 

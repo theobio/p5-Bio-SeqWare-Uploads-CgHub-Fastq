@@ -1,7 +1,12 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.006 PRE-RELEASE
- [DEV] - Changed [BUG] to [FIX] in changes file.
+0.000.006 2013-08-29 21:45:00
+ [MAJOR] - Implemented VALIDATE stage.
+ [API]   - Function _changeUploadRunStage now returns whole upload record
+           as a HR instead of just the upload id.
+ [DOC]   - Description of VALIDATE stage.
+ [DEV]   - Changed [BUG] to [FIX] in changes file.
+ [DEV]   - Added the cgsubmit2.pl script for future use.
 
 0.000.005 2013-08-28 22:15:00
  [FIX]  - Added throttle to upload-cghub-fastq.pl based on server load.
