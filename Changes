@@ -1,7 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.007 Pre-release
+0.000.007 2013-08-30 18:45:00
  [FIX]   - corrected name of cgsubmit executable
+ [MAJOR] - Split UPLOAD task, Implemented SUBMIT_META, SUBMIT_FASTQ left.
 
 0.000.006 2013-08-29 21:45:00
  [MAJOR] - Implemented VALIDATE stage.

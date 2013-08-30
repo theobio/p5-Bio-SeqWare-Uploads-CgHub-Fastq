@@ -25,6 +25,7 @@ t/manifest.t
 t/meta.t
 t/pod-coverage.t
 t/pod.t
+t/submit_meta.t
 t/validate.t
 t/zip.t
 TODO.md

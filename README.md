@@ -4,13 +4,18 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.007   Pre-Release
+Version 0.000.007
+=cut
+
+our $VERSION = '0.000007';
 
 # SYNOPSIS
 
     use Bio::SeqWare::Uploads::CgHub::Fastq;
 
-    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
+    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new( $paramHR );
+    $obj->run();
+    $obj->run( "ZIP" );
 
 # DESCRIPTION
 
@@ -34,10 +39,14 @@ supported by the processing logic.
 
 ## new()
 
-    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new();
+    my $obj = Bio::SeqWare::Uploads::CgHub::Fastq->new( $paramHR );
 
 Creates and returns a Bio::SeqWare::Uploads::CgHub::Fastq object. Takes
-no parameters, providing one is a fatal error.
+a hash-ref of parameters, each of which is made avaialble to the object.
+Don't use parameters beging with a \_ (underscore). These may be overwritten.
+The parameter 'error' is cleared automatically, 'myName' is set to
+"upload-cghub-fastq\_$VERSION" where version is the version of this module,
+like 0.000007"
 
 ## getUuid()
 
@@ -86,22 +95,126 @@ undef. Directory markers are "/", ".", or ".." on Unix
 
 ## run()
 
-    $obj->run();
-    my @allowedModes = qw( ZIP META VALIDATE UPLOAD ALL ); # Case unimportant
-    $obj->run( "all" );
+      $obj->run();
+    # or
+      $obj->run( $runMode );
+      # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ ALL
+    # or
+      $obj->run( $runMode, $dbh );
+    # or
+      $obj->run( undef, $dbh );
 
 This is the "main" program loop, associated with running `upload-cghub-fastq`
-This method can be called with or without a parameter. If called without a
-parameter, it uses the value of the instance's 'runMode' property. All allowed
-values for that parameter are supported here: case insenistive "ZIP", "META",
-"VALIDATE", "UPLOAD", and "ALL". Each parameter causes the associated "do..."
-method to be invoked, although "ALL"" causes each of the 4 do... methods to be
-invoked in order as above.
+This method can be called with or without a parameter. If called with no
+$runmode, it uses the current value of the instance's 'runMode' property. All
+allowed values for that parameter are supported here: case insenistive "ZIP",
+"META", "VALIDATE", "SUBMIT\_META", "SUBMIT\_FASTQ" and "ALL". Each parameter
+causes the associated "do..." method to be invoked, although "ALL"" causes
+each of the 5 do... methods to be invoked in order as above.
 
-This method will should either succeed and return 1 or set $self->{'error'}
-and returns undef.
+This method will either succeed and return 1 or set $self->{'error'}
+and die. If an upload record id is known when an error occurs, the upload.status
+field for that upload record will be updated to "$STAGE\_failed\_$ERROR", where
+$STAGE is the stage in which the error occurs, and $ERROR is $self->{'error'}.
 
-## = doZip()
+This method calls itself to allow nested processing, and allows passing a
+database handle as a parameter to support that. If not provided, a connection
+will be created. Due to the length of some of the processing, the passed
+connection may be invalid an fail.
+=cut
+
+sub run {
+    my $self = shift;
+    my $runMode = shift;
+    my $dbh = shift;
+
+    # Validate runMode parameter
+    if (! defined $runMode) {
+        $runMode = $self->{'runMode'};
+    }
+    if (! defined $runMode || ref $runMode ) {
+        $self->{'error'} = "bad_run_mode";
+        croak "Can't run unless specify a runMode.";
+    }
+    $runMode = uc $runMode;
+
+    # Database connection likewise
+    if (! defined $dbh) {
+        $dbh = $self->{'dbh'};
+    }
+    if (! defined $dbh ) {
+        eval {
+            my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
+            if (! defined $connectionBuilder) {
+                $self->{'error'} = "constructing_connection";
+                croak "Failed to create Bio::SeqWare::Db::Connection.\n";
+            }
+
+            print ("DEBUG: " . Dumper($connectionBuilder));
+            $dbh = $connectionBuilder->getConnection(
+                 {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1}
+            );
+        };
+        if ($@ || ! $dbh) {
+            croak "Failed to connect to the database $@\n$!\n";
+        }
+    }
+
+    # Run as selected.
+    eval {
+        if ( $runMode eq "ALL" ) {
+            $self->run('ZIP', $dbh);
+            $self->run('META', $dbh);
+            $self->run('VALIDATE', $dbh);
+            $self->run('SUBMIT_META', $dbh);
+            $self->run('SUBMIT_FASTQ', $dbh);
+        }
+        elsif ($runMode eq "ZIP" ) {
+            $self->doZip( $dbh );
+        }
+        elsif ($runMode eq "META" ) {
+            $self->doMeta( $dbh );
+        }
+        elsif ($runMode eq "VALIDATE" ) {
+            $self->doValidate( $dbh );
+        }
+        elsif ($runMode eq "SUBMIT_META" ) {
+            $self->doSubmitMeta( $dbh );
+        }
+        elsif ($runMode eq "SUBMIT_FASTQ" ) {
+            $self->doSubmitFastq( $dbh );
+        }
+        else {
+            $self->{'error'} = "unknown_run_mode";
+            croak "Illegal runMode \"$runMode\" specified.\n";
+        }
+    };
+
+    if ($@) {
+        my $error = $@;
+        if ( $self->{'_fastqUploadId'}) {
+            $self->_updateUploadStatus( $dbh, "zip_failed_" . $self->{'error'})
+                or $error .= " ALSO: Failed to update UPLOAD: $self->{'fastqUploadId'} with ERROR: $self->{'error'}";
+        }
+        eval {
+            $dbh->disconnect();
+        };
+        if ($@) {
+            $error .= " ALSO: error disconnecting from database: $@\n";
+        }
+        croak $error;
+    }
+    else {
+        $dbh->disconnect();
+        if ($@) {
+            my $error .= "$@";
+            warn "Problem encountered disconnecting from the database - Likely ok: $error\n";
+        }
+        return 1;
+    }
+}
+
+## doZip()
 
     $obj->doZip( $dbh );
 
@@ -190,9 +303,13 @@ To $obj, adds
 
     $obj->doValidate();
 
-## = doUpload()
+## = doSubmitMeta()
 
-    $obj->doUpload();
+    $obj->doSubmitMeta();
+
+## = doSubmitFastq()
+
+    $obj->doSubmitFastq();
 
 ## = getAll()
 
@@ -457,6 +574,10 @@ USES
 ## \_validateMeta
 
     self->_validateMeta();
+
+## \_submitMeta
+
+    $obj->_submitMeta();
 
 # AUTHOR
 

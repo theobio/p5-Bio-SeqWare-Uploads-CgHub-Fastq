@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.007   Pre-Release
+Version 0.000.007
 
 =cut
 
