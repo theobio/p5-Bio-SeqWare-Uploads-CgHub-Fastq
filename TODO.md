@@ -1,13 +1,13 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.007 : - Implemented first half of UPLOAD step.
+   # Pre-release
+This is release v0.000.008 : - Implemented second half of UPLOAD step.
 
 # ROADMAP
 
 These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
-2013-08-31 v0.000.008 [MAJOR] - Implement UPLOAD step
 2013-09-01 v0.000.009 [ADD]   - Improve error handling
 2013-09-03 v0.000.010 [ADD]   - Generate all xml from scratch.
 
