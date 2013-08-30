@@ -8,6 +8,7 @@ use Data::Dumper;         # Quick error messages
 
 use File::Temp;                      # Simple files for testing
 use File::ShareDir qw(dist_dir);     # Access data files from install.
+use File::Copy qw(cp);               # Copy a file
 
 use Bio::SeqWare::Config 0.000003; # Get config data, with most recent keyset
 use Bio::SeqWare::Uploads::CgHub::Fastq 0.000002; # Latest dev build.
@@ -16,7 +17,6 @@ use Test::Output;               # Test STDOUT and STDERR output.
 use DBD::Mock;
 use Test::File::Contents;
 use Test::More 'tests' => 4;    # Run this many Test::More compliant subtests
-use File::Copy qw(cp);          # Copy a file
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
@@ -70,9 +70,12 @@ sub test_doMeta {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
-        'statement'    => qr/SELECT upload_id/msi,
+        'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-        'results'  => [[ 'upload_id' ], [ $uploadId ]]
+        'results'  => [
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
+            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid         ],
+        ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
         'bound_params' => [ $newStatus,  $uploadId ],
@@ -125,14 +128,23 @@ sub test__changeUploadRunStage {
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
     my $obj = $CLASS->new( $OPT_HR );
+    my $fakeUploadHR = {
+        'upload_id'         => $uploadId,
+        'cghub_analysis_id' => $uuid,
+        'metadata_dir'      => $metaDataDir,
+        'status'            => $newStatus,
+    };
 
     my @dbSession = ({
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
-        'statement'    => qr/SELECT upload_id/msi,
+        'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-        'results'  => [[ 'upload_id' ], [ $uploadId ]]
+        'results'  => [
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
+            [ $uploadId,   $oldStatus, $metaDataDir,   $uuid               ],
+        ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
         'bound_params' => [ $newStatus,  $uploadId ],
@@ -145,7 +157,7 @@ sub test__changeUploadRunStage {
     {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "smoke test", @dbSession );
-        is( -21, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
+        is_deeply( $fakeUploadHR, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
     }
     {
         $MOCK_DBH->{'mock_session'} =
@@ -199,7 +211,7 @@ sub test__changeUploadRunStage {
         stdout_is {
             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
         } "SQL to find a lane in state $oldStatus:\n"
-        . "SELECT upload_id
+        . "SELECT *
         FROM upload
         WHERE target = ?
           AND status = ?
@@ -222,7 +234,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement'    => qr/SELECT upload_id/msi,
+            'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
             'results'  => [[]]
         }, {
@@ -239,7 +251,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement'    => qr/SELECT upload_id/msi,
+            'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
             'results'  => [[ 'upload_id' ], []]
         }, {
@@ -262,7 +274,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement'    => qr/SELECT upload_id/msi,
+            'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
             'results'  => [[ 'upload_id' ], [ $uploadId ]]
         }, {
@@ -290,7 +302,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement'    => qr/SELECT upload_id/msi,
+            'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
             'results'  => [[ 'upload_id' ], [ $uploadId ]]
         }, {

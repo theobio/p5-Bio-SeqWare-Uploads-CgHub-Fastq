@@ -11,6 +11,7 @@ use File::Spec;                   # Normal path handling
 use File::Path qw(make_path);     # Create multiple-directories at once
 use File::Copy qw(cp);            # Copy a file
 use File::ShareDir qw(dist_dir);  # Access data files from install.
+use Cwd;                          # get current working directory.
 
 use DBI;
 use Template;
@@ -450,10 +451,10 @@ sub doMeta {
     # Tag upload as meta-completed
 
     eval {
-        my $uploadId = $self->_changeUploadRunStage( $dbh, 'zip_completed', 'meta_running' );
-        my $dataHR = $self->_getTemplateData( $dbh, $uploadId );
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'zip_completed', 'meta_running' );
+        my $dataHR = $self->_getTemplateData( $dbh, $uploadHR->{'upload_id'} );
         my $outFile = $self->_makeFileFromTemplate( $dataHR, "analysis.xml", "analysis_fastq.xml.template");
-        $self->_updateUploadStatus( $dbh, $uploadId, "meta_completed");
+        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "meta_completed");
     };
     if ($@) {
         my $error = $@;
@@ -475,7 +476,9 @@ sub doValidate() {
     my $dbh = shift;
 
     eval {
-        croak("doValidate() not implemented!\n")
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'meta_completed', 'validate_running' );
+        my $ok = _validateMeta( $uploadHR );
+        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "validate_completed");
     };
     if ($@) {
         my $error = $@;
@@ -1468,14 +1471,12 @@ sub _zip() {
     
 Loks for an upload record with the given $fromStatus status. If can't find any,
 just returns undef. If finds one, then changes its status to the given $toStatus
-and returns the upload.upload_id of the specified record.
+and returns that upload record as a HR with the column names as keys.
 
 This does not set error as failure would likely be redundant.
 
-Croaks without parameters, if there are db errors reported, or if no uploadId
+Croaks without parameters, if there are db errors reported, or if no upload
 can be retirived.
-
-Sets '_fastqUploadDir'
 
 =cut
 
@@ -1486,7 +1487,7 @@ sub _changeUploadRunStage {
     my $fromStatus = shift;
     my $toStatus = shift;
 
-    my $uploadId;
+    my %upload;
 
     # Parameter validation
     unless ($dbh) {
@@ -1503,7 +1504,7 @@ sub _changeUploadRunStage {
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
     my $selectionSQL =
-       "SELECT upload_id
+       "SELECT *
         FROM upload
         WHERE target = ?
           AND status = ?
@@ -1533,19 +1534,19 @@ sub _changeUploadRunStage {
         if (! defined $rowHR) {
             # Nothing to update - this is a normal exit
             $dbh->commit();
-            $uploadId = undef;  # Just to be clear.
+            undef %upload;  # Just to be clear.
         }
         else {
             # Update retrieved data, or die
-            $uploadId = $rowHR->{'upload_id'};
+            %upload = %$rowHR;
 
             if ($self->{'verbose'}) {
                 print( "Switching upload processing status from $fromStatus to $toStatus\n"
-                    . "; " . "UPLOAD_ID: " . $uploadId
+                    . "; " . "UPLOAD_ID: " . $upload{'upload_id'}
                     . "\n");
             }
 
-            unless ( $uploadId ) {
+            unless ( $upload{'upload_id'} ) {
                 $self->{'error'} = "upload_switch_data_$fromStatus" . "_to_" . $toStatus;
                 croak "Failed to retrieve upload data when switching from $fromStatus to $toStatus.\n";
             }
@@ -1554,7 +1555,7 @@ sub _changeUploadRunStage {
             my $updateSTH = $dbh->prepare( $updateSQL );
             $updateSTH->execute(
                 $toStatus,
-                $uploadId,
+                $upload{'upload_id'},
             );
             if ($updateSTH->rows() != 1) {
                 $self->{'error'} = "upload_status_update_$fromStatus" . "_to_" . $toStatus;
@@ -1562,6 +1563,7 @@ sub _changeUploadRunStage {
             }
             $updateSTH->finish();
             $dbh->commit();
+            $upload{'status'} = $toStatus;
         }
     };
     if ($@) {
@@ -1578,7 +1580,12 @@ sub _changeUploadRunStage {
         croak "Switching upload status from $fromStatus to $toStatus failed: $error\n";
     }
 
-    return $uploadId;
+    if (! %upload) {
+        return undef;
+    }
+    else {
+        return \%upload;
+    }
 }
 
 =head2 _getTemplateData
@@ -1757,6 +1764,57 @@ sub _makeFileFromTemplate {
         die( "$@\n" )
     }
     return $outAbsFilePath;
+}
+
+=head2 _validateMeta
+
+    self->_validateMeta();
+
+=cut
+
+sub _validateMeta {
+
+    my $uploadHR = shift;
+
+    my $CGSUBMIT_EXEC = '/usr/bin/gtupload';
+    my $CGHUB_URL = 'https://cghub.ucsc.edu/';
+    my $OK_VALIDATED_REGEXP = qr/Metadata Validation Succeeded\./m;
+
+    my $fastqOutDir = File::Spec->catdir(
+        $uploadHR->{'metadata_dir'},
+        $uploadHR->{'cghub_analysis_id'}
+    );
+
+    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL  -u $fastqOutDir --validate-only";
+
+    my $oldCwd = getcwd();
+    chdir( $fastqOutDir );
+
+    my $errorMessage = "";
+    my $validateResult = qx/$command/;
+    
+    if ($?) {
+        if ($validateResult) {
+            die ("Validation error: exited with error value \"$?\". Output was:\n$validateResult\n"
+                . "Original command was:\n$command\n" );
+        }
+        else {
+            die ("Validation error: exited with error value \"$?\". No output was generated.\n"
+                . "Original command was:\n$command\n" );
+        }
+    }
+    if (! $validateResult) {
+        die( "Validation error: neither error nor result generated. Strange.\n"
+                    . "Original command was:\n$command\n" );
+    }
+    if ( $validateResult !~ $OK_VALIDATED_REGEXP ) {
+        die( "Validation error: Apparently failed to validate.\n"
+            . "Actaul validation result was:\n$validateResult\n\n"
+            . "Original command was:\n$command\n" );
+    }
+
+    chdir( $oldCwd );
+    return 1;
 }
 
 =head1 AUTHOR

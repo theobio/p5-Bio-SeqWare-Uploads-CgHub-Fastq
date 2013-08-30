@@ -261,15 +261,7 @@ sub testRun {
 }
 
 sub testRunNotImplemented {
-	plan( tests => 2 );
-	{
-	   my $obj = $CLASS->new( {} );
-       $obj->{'dbh'} = $MOCK_DBH;
-	   eval{ $obj->run( "VALIDATE" ) };
-       my $got = $@;
-       my $want = qr/^doValidate\(\) not implemented/;
-       like( $got, $want, "error if runMode is VALIDATE");
-    }
+	plan( tests => 1 );
 	{
 	   my $obj = $CLASS->new( {} );
        $obj->{'dbh'} = $MOCK_DBH;
