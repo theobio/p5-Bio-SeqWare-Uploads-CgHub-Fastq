@@ -1,6 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.006 - Implements VALIDATION step
+This is release v0.000.007 : Pre release
 
 # ROADMAP
 
@@ -21,6 +21,7 @@ from "In consideration".
 2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
                               and test.
 2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
+2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options
 
 # IN CONSIDERATION
 

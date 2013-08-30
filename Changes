@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.007 Pre-release
+ [FIX]   - corrected name of cgsubmit executable
+
 0.000.006 2013-08-29 21:45:00
  [MAJOR] - Implemented VALIDATE stage.
  [API]   - Function _changeUploadRunStage now returns whole upload record
