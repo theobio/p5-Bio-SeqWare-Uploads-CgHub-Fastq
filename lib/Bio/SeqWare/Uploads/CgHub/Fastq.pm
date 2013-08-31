@@ -27,11 +27,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.008
+Version 0.000.009
 
 =cut
 
-our $VERSION = '0.000008';
+our $VERSION = '0.000009';
 
 =head1 SYNOPSIS
 
@@ -498,7 +498,7 @@ sub doValidate() {
 
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'meta_completed', 'validate_running' );
-        my $ok = _validateMeta( $uploadHR );
+        my $ok = $self->_validateMeta( $uploadHR );
         $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "validate_completed");
     };
     if ($@) {
@@ -521,7 +521,7 @@ sub doSubmitMeta() {
 
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'validate_completed', 'submit_meta_running' );
-        my $ok = _submitMeta( $uploadHR );
+        my $ok = $self->_submitMeta( $uploadHR );
         $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_meta_completed");
     };
     if ($@) {
@@ -544,7 +544,7 @@ sub doSubmitFastq() {
 
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit_meta_completed', 'submit_fastq_running' );
-        my $ok = _submitFastq( $uploadHR );
+        my $ok = $self->_submitFastq( $uploadHR );
         $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_fastq_completed");
     };
     if ($@) {
@@ -1820,7 +1820,11 @@ sub _makeFileFromTemplate {
 
 sub _validateMeta {
 
+    my $self     = shift;
     my $uploadHR = shift;
+    unless ( $uploadHR ) {
+        croak( "Missing parameter: requires specifying upload record." );
+    }
 
     my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
     my $CGHUB_URL = 'https://cghub.ucsc.edu/';
@@ -1832,6 +1836,10 @@ sub _validateMeta {
     );
 
     my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL  -u $fastqOutDir --validate-only";
+
+    if ($self->{'verbose'}) {
+        print( "VALIDATE COMMAND: \"$command\"\n" );
+    }
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -1871,7 +1879,12 @@ sub _validateMeta {
 
 sub _submitMeta {
 
+    my $self     = shift;
     my $uploadHR = shift;
+
+    unless ( $uploadHR ) {
+        croak( "Missing parameter: requires specifying upload record." );
+    }
 
     my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
     my $CGHUB_URL = 'https://cghub.ucsc.edu/';
@@ -1885,6 +1898,10 @@ sub _submitMeta {
     );
 
     my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir";
+
+    if ($self->{'verbose'}) {
+        print( "SUBMIT META COMMAND: \"$command\"\n" );
+    }
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -1936,7 +1953,12 @@ sub _submitMeta {
 
 sub _submitFastq {
 
+    my $self     = shift;
     my $uploadHR = shift;
+
+    unless ( $uploadHR ) {
+        croak( "Missing parameter: requires specifying upload record." );
+    }
 
     my $GTUPLOAD_EXEC = '/usr/bin/gtupload';
     my $CGHUB_URL = 'https://cghub.ucsc.edu/';
@@ -1949,7 +1971,13 @@ sub _submitFastq {
         $uploadHR->{'cghub_analysis_id'}
     );
 
-    my $command = "$GTUPLOAD_EXEC -vvvv -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir -p $fastqOutDir";
+    my $uploadManifest = File::Spec->catfile( $fastqOutDir, 'manifest.xml' );
+
+    my $command = "$GTUPLOAD_EXEC -vvvv -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir";
+
+    if ($self->{'verbose'}) {
+        print( "SUBMIT FASTQ COMMAND: \"$command\"\n" );
+    }
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -2019,9 +2047,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.008
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.009
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.008.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.009.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

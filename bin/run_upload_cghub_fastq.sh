@@ -5,12 +5,15 @@
 #    $ run_upload-cghub-fastq.sh [STAGE]
 # Where
 #    STAGE = (optionally) one of ZIP (deault) | META | VALIDATE | SUBMIT | ALL
+#
+# Assumes that $PERLBREW_ALIAS holds the name of the perlbrew install to use.
+# If not defined, just uses the current perl
 
 #
 # Set up defaults and initialize log.
 #
 
-VERSION="0.000.008"
+VERSION="0.000.009"
 STAGE="$1"
 
 if [ -z "$STAGE" ]; then
@@ -51,7 +54,12 @@ echo "Current average load: $LOAD; Max load: $MAX_LOAD."
 export PERLBREW_ROOT="/home/seqware/perl5/perlbrew"
 export PERLBREW_HOME="/tmp/.perlbrew"
 source "${PERLBREW_ROOT}/etc/bashrc"
-perlbrew use uploadperl
+if [ -z "${PERLBREW_ALIAS}" ]; then
+    perlbrew use
+else
+    perlbrew use ${PERLBREW_ALIAS}
+    perlbrew use
+fi
 
 #
 # Set up and run the perl script that does (at least some stage of) the

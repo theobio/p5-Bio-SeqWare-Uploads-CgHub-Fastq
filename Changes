@@ -1,5 +1,9 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.009 2013-08-31 13:15:00
+ [FIX]   - The gtupload command does not allow specifying url like cgsubmit.
+ [FIX]   - Several functions were not called as methods, added param checks.
+
 0.000.008 2013-08-31 12:15:00
  [FIX]   - Skip previous release; install looks like 0.000.006.
  [MAJOR] - Implemente SUBMIT_FASTQ - All major modes now implemented.
