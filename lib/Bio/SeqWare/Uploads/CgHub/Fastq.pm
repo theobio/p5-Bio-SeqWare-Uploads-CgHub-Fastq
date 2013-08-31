@@ -1855,7 +1855,7 @@ sub _validateMeta {
     }
     if ( $validateResult !~ $OK_VALIDATED_REGEXP ) {
         die( "Validation error: Apparently failed to validate.\n"
-            . "Actaul validation result was:\n$validateResult\n\n"
+            . "Actual validation result was:\n$validateResult\n\n"
             . "Original command was:\n$command\n" );
     }
 
@@ -1877,7 +1877,7 @@ sub _submitMeta {
     my $CGHUB_URL = 'https://cghub.ucsc.edu/';
     my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
     my $OK_SUBMIT_META_REGEXP = qr/Metadata Submission Succeeded\./m;
-    my $ERROR_RESUBMIT_META_REGEXP = qr/Error\s*: Your are attempting to upload to a uuid which already exists within the system and is not in the submitted or uploading state\./m;
+    my $ERROR_RESUBMIT_META_REGEXP = qr/Error\s*: You are attempting to submit an analysis using a uuid that already exists within the system and is not in the upload or submitting state/m;
 
     my $fastqOutDir = File::Spec->catdir(
         $uploadHR->{'metadata_dir'},
@@ -1900,7 +1900,7 @@ sub _submitMeta {
         }
         elsif ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
             die( "Submit meta error: Already submitted. Exited with error value \"$?\".\n"
-                . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+                . "Actual submit meta result was:\n$submitMetaResult\n\n"
                 . "Original command was:\n$command\n" );
         }
         else {
@@ -1914,12 +1914,77 @@ sub _submitMeta {
     }
     if ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
         die( "Submit meta error: Already submitted.\n"
-            . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+            . "Actual submit meta result was:\n$submitMetaResult\n\n"
             . "Original command was:\n$command\n" );
     }
     if ( $submitMetaResult !~ $OK_SUBMIT_META_REGEXP ) {
         die( "Submit meta error: Apparently failed to submit.\n"
-            . "Actaul submit meta result was:\n$submitMetaResult\n\n"
+            . "Actual submit meta result was:\n$submitMetaResult\n\n"
+            . "Original command was:\n$command\n" );
+    }
+
+    chdir( $oldCwd );
+    return 1;
+
+}
+
+=head2 _submitMeta
+
+   $obj->_submitMeta();
+
+=cut
+
+sub _submitFastq {
+
+    my $uploadHR = shift;
+
+    my $GTUPLOAD_EXEC = '/usr/bin/gtupload';
+    my $CGHUB_URL = 'https://cghub.ucsc.edu/';
+    my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
+    my $OK_SUBMIT_FASTQ_REGEXP = qr/100\.000/m;
+    my $ERROR_RESUBMIT_FASTQ_REGEXP = qr/Error\s*: Your are attempting to upload to a uuid which already exists within the system and is not in the submitted or uploading state\. This is not allowed\./;
+
+    my $fastqOutDir = File::Spec->catdir(
+        $uploadHR->{'metadata_dir'},
+        $uploadHR->{'cghub_analysis_id'}
+    );
+
+    my $command = "$GTUPLOAD_EXEC -vvvv -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir -p $fastqOutDir";
+
+    my $oldCwd = getcwd();
+    chdir( $fastqOutDir );
+
+    my $errorMessage = "";
+    my $submitFastqResult = qx/$command/;
+
+    if ($?) {
+        # Unsure of exit value when get this message, so here twoce
+        if (! $submitFastqResult ) {
+            die ("Submit fastq error: exited with error value \"$?\". No output was generated.\n"
+                . "Original command was:\n$command\n" );
+        }
+        elsif ( $submitFastqResult =~ $ERROR_RESUBMIT_FASTQ_REGEXP ) {
+            die( "Submit fastq error: Already submitted. Exited with error value \"$?\".\n"
+                . "Actual submit fastq result was:\n$submitFastqResult\n\n"
+                . "Original command was:\n$command\n" );
+        }
+        else {
+            die ("Submit fastq error: exited with error value \"$?\". Output was:\n$submitFastqResult\n"
+                . "Original command was:\n$command\n" );
+        }
+    }
+    if (! $submitFastqResult) {
+        die( "Submit fastq error: neither error nor result generated. Strange.\n"
+                    . "Original command was:\n$command\n" );
+    }
+    if ( $submitFastqResult =~ $ERROR_RESUBMIT_FASTQ_REGEXP ) {
+        die( "Submit fastq error: Already submitted.\n"
+            . "Actual submit fastq result was:\n$submitFastqResult\n\n"
+            . "Original command was:\n$command\n" );
+    }
+    if ( $submitFastqResult !~ $OK_SUBMIT_FASTQ_REGEXP ) {
+        die( "Submit fastq error: Apparently failed to submit.\n"
+            . "Actual submit fastq result was:\n$submitFastqResult\n\n"
             . "Original command was:\n$command\n" );
     }
 
@@ -1954,9 +2019,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.007
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.008
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.007.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.008.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

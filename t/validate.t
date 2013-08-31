@@ -270,7 +270,7 @@ sub test__validateMeta {
 	    {
             my $shows = "Error describes return (invalid return)";
             my $escapedMessage = quotemeta( $fakeNotValidMessage );
-            my $want = qr/Actaul validation result was:.{1,2}$escapedMessage/s;
+            my $want = qr/Actual validation result was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }

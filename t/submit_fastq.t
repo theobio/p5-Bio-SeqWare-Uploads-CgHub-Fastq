@@ -42,7 +42,7 @@ my $CONFIG   = Bio::SeqWare::Config->new();
 
 my $OPT = $CONFIG->getKnown();
 my $OPT_HR = { %$OPT,
-    'runMode'            => 'SUBMIT_META',
+    'runMode'            => 'SUBMIT_FASTQ',
     'uploadFastqBaseDir' => "$TEMP_DIR",
     'myName'             => 'DELETE_ME-upload-cghub-fastq_0.0.3',
     'rerun'              => 2,
@@ -61,16 +61,16 @@ my $MOCK_DBH = DBI->connect(
 # TESTING
 #
 
-subtest( 'doSubmitMeta()'  => \&test_doSubmitMeta  );
-subtest( '_submitMeta()'   => \&test__submitMeta   );
+subtest( '_submitFastq()'   => \&test__submitFastq   );
+subtest( 'doSubmitFastq()'  => \&test_doSubmitFastq  );
 
-sub test_doSubmitMeta {
+sub test_doSubmitFastq {
      plan( tests => 1 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
-    my $oldStatus = "validate_completed";
-    my $newStatus = "submit_meta_running";
-    my $finalStatus = "submit_meta_completed";
+    my $oldStatus = "submit_meta_completed";
+    my $newStatus = "submit_fastq_running";
+    my $finalStatus = "submit_fastq_completed";
 
     my $uploadId       = 7851;
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -79,7 +79,7 @@ sub test_doSubmitMeta {
     mkdir($uploadDir);
 
     my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
-                          . "Metadata Submission Succeeded.\n";
+                          . "100.000.\n";
 
     my $fakeErrorMessage = "Fake (BAD) Submission Return\n"
                           . "Error    : Your are attempting to upload to a uuid"
@@ -122,10 +122,10 @@ sub test_doSubmitMeta {
         $mock_readpipe->{'mock'} = 1;
         $mock_readpipe->{'ret'} = $fakeValidMessage;
 	    my $obj = $CLASS->new( $OPT_HR );
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "doSubmitMetaOk", @dbSession );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "doSubmitFastqOk", @dbSession );
 	    {
-            my $shows = "doSubmitMeta returns 1 when succesful";
-            my $got = $obj->doSubmitMeta( $MOCK_DBH );
+            my $shows = "doSubmitFastq returns 1 when succesful";
+            my $got = $obj->doSubmitFastq( $MOCK_DBH );
             my $want = 1;
             is( $got, $want, $shows);
 	    }
@@ -133,16 +133,14 @@ sub test_doSubmitMeta {
     }
 }
 
-sub test__submitMeta {
+sub test__submitFastq {
 
     plan( tests => 20 );
     my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
-                          . "Metadata Submission Succeeded.\n";
+                          . "100.000.\n";
 
-    my $fakeKnownErrorMessage = "Fake (BAD) Submission Return\n"
-                          . "Error    : You are attempting to submit an"
-                          .  " analysis using a uuid that already exists within"
-                          . " the system and is not in the upload or submitting state\n";
+    my $fakeKnownErrorMessage =
+        "Error    : Your are attempting to upload to a uuid which already exists within the system and is not in the submitted or uploading state. This is not allowed.";
 
     my $fakeUnknowMessage = "Fake (UNKNOWN) Submission Return\n"
                           . "Oops.\n";
@@ -151,7 +149,7 @@ sub test__submitMeta {
         'metadata_dir' => "t",
         'cghub_analysis_id' => 'Data',
     };
-    my $opts_HR = { %$OPT_HR, '_cgSubmitExecutable' => '/usr/bin/cgsubmit' };
+    my $opts_HR = { %$OPT_HR, '_gtuploadExecutable' => '/usr/bin/gtupload' };
 
     {
         $mock_readpipe->{'mock'} = 1;
@@ -159,7 +157,7 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
 	    {
             my $shows = "Success when returns valid message";
-            my $got = $obj->_submitMeta( $uploadHR );
+            my $got = $obj->_submitFastq( $uploadHR );
             my $want = 1;
             is( $got, $want, $shows);
 	    }
@@ -172,7 +170,7 @@ sub test__submitMeta {
 	    {
             my $shows = "Directory doesn't change";
             my $want = getcwd();
-            $obj->_submitMeta( $uploadHR );
+            $obj->_submitFastq( $uploadHR );
             my $got = getcwd();
             is( $got, $want, $shows);
 	    }
@@ -184,25 +182,25 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if return known bad no error";
-            my $want = qr/Submit meta error: Already submitted\./s;
+            my $want = qr/Submit fastq error: Already submitted\./s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes return (known bad, no error)";
             my $escapedMessage = quotemeta( $fakeKnownErrorMessage );
-            my $want = qr/Actual submit meta result was:.{1,2}$escapedMessage/s;
+            my $want = qr/Actual submit fastq result was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes command (known bad, no error)";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -216,12 +214,12 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error describes exit value when command exits with error and ret value";
-            my $want = qr/Submit meta error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
+            my $want = qr/Submit fastq error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -234,7 +232,7 @@ sub test__submitMeta {
 	    }
 	    {
             my $shows = "Error describes command when command exits with error and ret value";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -249,12 +247,12 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error describes exit value when command exits with error but no ret value";
-            my $want = qr/Submit meta error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
+            my $want = qr/Submit fastq error: exited with error value \"$mock_readpipe->{'exit'}\"\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -266,7 +264,7 @@ sub test__submitMeta {
 	    }
 	    {
             my $shows = "Error describes command when command exits with error";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -280,18 +278,18 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if no error but no return text.";
-            my $want = qr/Submit meta error: neither error nor result generated\. Strange\./;
+            my $want = qr/Submit fastq error: neither error nor result generated\. Strange\./;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes command (no error, but no return)";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -304,25 +302,25 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if return value indicates invalid";
-            my $want = qr/Submit meta error: Apparently failed to submit\..{1,2}/s;
+            my $want = qr/Submit fastq error: Apparently failed to submit\..{1,2}/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes return (invalid return)";
             my $escapedMessage = quotemeta( $fakeUnknowMessage );
-            my $want = qr/Actual submit meta result was:.{1,2}$escapedMessage/s;
+            my $want = qr/Actual submit fastq result was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes command (invalid returnn)";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
@@ -336,12 +334,12 @@ sub test__submitMeta {
 	    my $obj = $CLASS->new( $opts_HR );
         my $retval;
         eval {
-            $retval = $obj->_submitMeta( $uploadHR );
+            $retval = $obj->_submitFastq( $uploadHR );
         };
         my $error = $@;
 	    {
             my $shows = "Error if return known bad with error";
-            my $want = qr/Submit meta error: Already submitted\./s;
+            my $want = qr/Submit fastq error: Already submitted\./s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
@@ -354,13 +352,13 @@ sub test__submitMeta {
 	    {
             my $shows = "Error describes return (known bad, with error)";
             my $escapedMessage = quotemeta( $fakeKnownErrorMessage );
-            my $want = qr/Actual submit meta result was:.{1,2}$escapedMessage/s;
+            my $want = qr/Actual submit fastq result was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
 	    }
 	    {
             my $shows = "Error describes command (known bad, with error)";
-            my $escapedMessage = quotemeta( $obj->{'_cgSubmitExecutable'} );
+            my $escapedMessage = quotemeta( $obj->{'_gtuploadExecutable'} );
             my $want = qr/Original command was:.{1,2}$escapedMessage/s;
             my $got = $error;
             like( $got, $want, $shows);
