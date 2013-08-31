@@ -27,11 +27,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.008   # Pre-release
+Version 0.000.008
 
 =cut
 
-our $VERSION = '0.000007';   # Pre-release
+our $VERSION = '0.000008';
 
 =head1 SYNOPSIS
 
