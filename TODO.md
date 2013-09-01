@@ -1,14 +1,15 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.009 : - Bug fixes. Upgrade to run in SUBMIT modes.
+This is release v0.000.0010 : - Change to shell script breaks backwards
+                              - compatibility. This is new baseline version.
 
 # ROADMAP
 
 These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
-2013-09-01 v0.000.010 [ADD]   - Improve error handling
-2013-09-03 v0.000.011 [ADD]   - Generate all xml from scratch.
+2013-09-01 v0.000.011 [ADD]   - Improve error handling
+2013-09-03 v0.000.012 [ADD]   - Generate all xml from scratch.
 
 # APPROVED / REJECTED
 

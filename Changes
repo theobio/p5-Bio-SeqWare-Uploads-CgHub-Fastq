@@ -1,5 +1,11 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.010 2013-08-31 20:30:00
+ [FIX]   - Actually need to remove the -s from gtupload command line.
+ [MAJOR] - To support multi-machine installs, the cron sh script now uses
+           $PERLBREW_ALIAS as the name of the perlbrew to switch to.
+         - Breaks backward compatibility! New baseline revision.
+
 0.000.009 2013-08-31 13:15:00
  [FIX]   - The gtupload command does not allow specifying url like cgsubmit.
  [FIX]   - Several functions were not called as methods, added param checks.

@@ -27,11 +27,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.009
+Version 0.000.0010
 
 =cut
 
-our $VERSION = '0.000009';
+our $VERSION = '0.0000010';
 
 =head1 SYNOPSIS
 
@@ -1961,7 +1961,6 @@ sub _submitFastq {
     }
 
     my $GTUPLOAD_EXEC = '/usr/bin/gtupload';
-    my $CGHUB_URL = 'https://cghub.ucsc.edu/';
     my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
     my $OK_SUBMIT_FASTQ_REGEXP = qr/100\.000/m;
     my $ERROR_RESUBMIT_FASTQ_REGEXP = qr/Error\s*: Your are attempting to upload to a uuid which already exists within the system and is not in the submitted or uploading state\. This is not allowed\./;
@@ -1973,7 +1972,7 @@ sub _submitFastq {
 
     my $uploadManifest = File::Spec->catfile( $fastqOutDir, 'manifest.xml' );
 
-    my $command = "$GTUPLOAD_EXEC -vvvv -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir";
+    my $command = "$GTUPLOAD_EXEC -vvvv -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir";
 
     if ($self->{'verbose'}) {
         print( "SUBMIT FASTQ COMMAND: \"$command\"\n" );
@@ -2047,9 +2046,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.009
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.010
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.009.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.010.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version
