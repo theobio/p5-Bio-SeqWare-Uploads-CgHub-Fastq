@@ -13,7 +13,7 @@
 # Set up defaults and initialize log.
 #
 
-VERSION="0.000.010"
+VERSION="0.000.011"
 STAGE="$1"
 
 if [ -z "$STAGE" ]; then

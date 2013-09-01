@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.011 2013-08-31 21:15:00
+ [FIX]   - Must read stderr from gtupload to get any kind of "done" messages.
+
 0.000.010 2013-08-31 20:30:00
  [FIX]   - Actually need to remove the -s from gtupload command line.
  [MAJOR] - To support multi-machine installs, the cron sh script now uses

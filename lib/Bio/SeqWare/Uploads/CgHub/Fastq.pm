@@ -27,11 +27,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.010
+Version 0.000.011
 
 =cut
 
-our $VERSION = '0.000010';
+our $VERSION = '0.000011';
 
 =head1 SYNOPSIS
 
@@ -1972,7 +1972,13 @@ sub _submitFastq {
 
     my $uploadManifest = File::Spec->catfile( $fastqOutDir, 'manifest.xml' );
 
-    my $command = "$GTUPLOAD_EXEC -vvvv -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir";
+    # Similar to cgsubmot, except not allowed to specify upload url; only way to
+    # tell finished is to use verbose and capture output, and (stupidly) the
+    # verbose output goes to standard error instead of standard out, so have to
+    # capture that to know when done. Also appears to require being in the
+    # upload directory, despite giving full path directory names for all
+    # parameters?
+    my $command = "$GTUPLOAD_EXEC -vvvv -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir 2>&1";
 
     if ($self->{'verbose'}) {
         print( "SUBMIT FASTQ COMMAND: \"$command\"\n" );
@@ -2046,9 +2052,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.010
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.011
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.010.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.011.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version
