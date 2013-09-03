@@ -258,12 +258,12 @@ sub run {
         $runMode = $self->{'runMode'};
     }
     if (! defined $runMode || ref $runMode ) {
-        $self->{'error'} = "bad_run_mode";
+        $self->{'error'} = "failed_run_param_mode";
         croak "Can't run unless specify a runMode.";
     }
     $runMode = uc $runMode;
 
-    # Database connection likewise
+    # Database connection = from param, or else from self, or else get new one.
     if (! defined $dbh) {
         $dbh = $self->{'dbh'};
     }
@@ -271,7 +271,7 @@ sub run {
         eval {
             my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
             if (! defined $connectionBuilder) {
-                $self->{'error'} = "constructing_connection";
+                $self->{'error'} = "failed_run_constructing_connection";
                 croak "Failed to create Bio::SeqWare::Db::Connection.\n";
             }
 
@@ -281,8 +281,13 @@ sub run {
             );
         };
         if ($@ || ! $dbh) {
+            $self->{'error'} = "failed_run_db_connection";
             croak "Failed to connect to the database $@\n$!\n";
         }
+    }
+
+    if ($self->{'verbose'}) {
+        print "Running step $runMode.\n"
     }
 
     # Run as selected.
@@ -310,7 +315,7 @@ sub run {
             $self->doSubmitFastq( $dbh );
         }
         else {
-            $self->{'error'} = "unknown_run_mode";
+            $self->{'error'} = "failed_run_unknown_run_mode";
             croak "Illegal runMode \"$runMode\" specified.\n";
         }
     };
@@ -318,8 +323,11 @@ sub run {
     if ($@) {
         my $error = $@;
         if ( $self->{'_fastqUploadId'}) {
-            $self->_updateUploadStatus( $dbh, "zip_failed_" . $self->{'error'})
-                or $error .= " ALSO: Failed to update UPLOAD: $self->{'fastqUploadId'} with ERROR: $self->{'error'}";
+            if (! $self->{'error'}) {
+                $self->{'error'} = 'failed_run_unknown_error';
+            }
+            $self->_updateUploadStatus( $dbh, $self->{'error'})
+                or $error .= " ALSO: Did not update UPLOAD: $self->{'fastqUploadId'} with ERROR: $self->{'error'}";
         }
         eval {
             $dbh->disconnect();
@@ -417,6 +425,11 @@ sub doZip {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = 'failed_zip_param_doZip_dbh';
+        croak ("doZip() missing \$dbh parameter.");
+    }
+
     eval {
         # Allow UUID to be provided, basically for testing as this is a random value.
         if (! $self->{'_fastqUploadUuid'}) {
@@ -434,6 +447,10 @@ sub doZip {
     };
     if ($@) {
         my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_zip_' . $self->{'error'};
         croak $error;
     }
 
@@ -463,27 +480,29 @@ sub doMeta {
     my $self = shift;
     my $dbh = shift;
 
-
-    # Select/tag upload.status = 'meta-running'.
-    # Create new meta directory using uuidgen
-    # Copy mapsplice experiment.xml and run.xml to this directory.
-    # Generate new analysis.xml from template this directory.
-    # Create file link.
-    # Tag upload as meta-completed
+    unless ($dbh) {
+        $self->{'error'} = 'failed_meta_param_doMeta_dbh';
+        croak ("doMeta() missing \$dbh parameter.");
+    }
 
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'zip_completed', 'meta_running' );
-        my $dataHR = $self->_getTemplateData( $dbh, $uploadHR->{'upload_id'} );
-        my $outFile = $self->_makeFileFromTemplate( $dataHR, "analysis.xml", "analysis_fastq.xml.template");
-        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "meta_completed");
+        if ($uploadHR)  {
+            my $dataHR = $self->_getTemplateData( $dbh, $uploadHR->{'upload_id'} );
+            my $outFile = $self->_makeFileFromTemplate( $dataHR, "analysis.xml", "analysis_fastq.xml.template");
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "meta_completed");
+        }
     };
     if ($@) {
         my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_meta_' . $self->{'error'};
         croak $error;
     }
 
     return 1;
-
 }
 
 =head2 = doValidate()
@@ -496,13 +515,28 @@ sub doValidate() {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = 'failed_validate_param_doValidate_dbh';
+        croak ("doValidate() missing \$dbh parameter.");
+    }
+
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'meta_completed', 'validate_running' );
-        my $ok = $self->_validateMeta( $uploadHR );
-        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "validate_completed");
+        if ($uploadHR)  {
+            my $ok = $self->_validateMeta( $uploadHR );
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "validate_completed");
+        }
     };
     if ($@) {
         my $error = $@;
+        croak $error;
+    }
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_validate_' . $self->{'error'};
         croak $error;
     }
 
@@ -519,13 +553,24 @@ sub doSubmitMeta() {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = 'failed_submit-meta_param_doSubmitMeta_dbh';
+        croak ("doSubmitMeta() missing \$dbh parameter.");
+    }
+
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'validate_completed', 'submit_meta_running' );
-        my $ok = $self->_submitMeta( $uploadHR );
-        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_meta_completed");
+        if ($uploadHR)  {
+            my $ok = $self->_submitMeta( $uploadHR );
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_meta_completed");
+        }
     };
     if ($@) {
         my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_submit-meta_' . $self->{'error'};
         croak $error;
     }
 
@@ -542,13 +587,24 @@ sub doSubmitFastq() {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = 'failed_submit-fastq_param_doSubmitFastq_dbh';
+        croak ("doSubmitFastq() missing \$dbh parameter.");
+    }
+
     eval {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit_meta_completed', 'submit_fastq_running' );
-        my $ok = $self->_submitFastq( $uploadHR );
-        $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_fastq_completed");
+        if ($uploadHR)  {
+            my $ok = $self->_submitFastq( $uploadHR );
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_fastq_completed");
+        }
     };
     if ($@) {
         my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_submit-fastq_' . $self->{'error'};
         croak $error;
     }
 
@@ -593,6 +649,12 @@ sub _tagLaneToUpload {
     my $self = shift;
     my $dbh = shift;
     my $newUploadStatus = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param_tagLaneToUpload_dbh";
+        croak ("_tagLaneToUpload() missing \$dbh parameter.");
+    }
+
     if (! $newUploadStatus) {
         $self->{'error'} = 'no_status_param';
         croak( "No status parameter specified." );
@@ -670,6 +732,10 @@ Errors
 sub _findNewLaneToZip {
     my $self = shift;
     my $dbh = shift;
+
+    unless ($dbh) {
+        croak ("_findNewLaneToZip() missing \$dbh parameter.");
+    }
 
     # Setup SQL
     my $sqlTargetForMapspliceUpload = 'CGHUB';
@@ -791,6 +857,11 @@ sub _createUploadWorkspace {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = "param_createUploadWorkspace_dbh";
+        croak ("_createUploadWorkspace() missing \$dbh parameter.");
+    }
+
     if (! -d $self->{'uploadFastqBaseDir'}) {
         $self->{'error'} = "no_fastq_base_dir";
         croak "Can't find the fastq upload base dir: $self->{'uploadFastqBaseDir'}";
@@ -879,6 +950,11 @@ sub _insertZipUploadRecord {
     my $self = shift;
     my $dbh = shift;
     my $newUploadStatus = shift;
+
+    unless ($dbh) {
+        croak ("_getTemplateData() missing \$dbh parameter.");
+    }
+
     if (! $newUploadStatus) {
         $self->{'error'} = 'no_status_param';
         croak( "No status parameter specified." );
@@ -969,6 +1045,7 @@ For example:
 sub _fastqFilesSqlSubSelect {
     my $self = shift;
     my $fastqWorkflowAccession = shift;
+
     if (! defined $fastqWorkflowAccession ) {
         $fastqWorkflowAccession = $self->{'_workflowAccession'};
     }
@@ -1012,6 +1089,10 @@ sub _getFilesToZip {
     my $self = shift;
     my $dbh = shift;
     $self->{'step'} = "getFastqFiles";
+
+    unless ($dbh) {
+        croak ("_getFilesToZip() missing \$dbh parameter.");
+    }
 
     my $workflowAccession = shift;
     if (defined $workflowAccession) {
@@ -1180,6 +1261,11 @@ sub _updateUploadStatus {
     my $dbh = shift;
     my $uploadId = shift;
     my $newStatus = shift;
+
+    unless ($dbh) {
+        croak ("_updateUploadStatus() missing \$dbh parameter.");
+    }
+
     if (! defined $newStatus || ! ($uploadId) ) {
         croak "Can't update upload record ID = $uploadId"
         . " to status = '$newStatus'.";
@@ -1229,6 +1315,10 @@ sub _insertFile {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        croak ("_insertFile() missing \$dbh parameter.");
+    }
+
     eval {
         $dbh->begin_work();
         $self->_insertFileRecord( $dbh );
@@ -1261,6 +1351,10 @@ sub _insertFile {
 sub _insertFileRecord {
     my $self = shift;
     my $dbh = shift;
+
+    unless ($dbh) {
+        croak ("_insertFileRecord() missing \$dbh parameter.");
+    }
 
     my $zipFileMetaType = "application/tar-gz";
     my $zipFileType = "fastq-by-end-tar-bundled-gz-compressed";
@@ -1319,6 +1413,10 @@ sub _insertProcessingFileRecords {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        croak ("_insertProcessingFileRecords() missing \$dbh parameter.");
+    }
+
     my $newProcessingFilesSQL =
         "INSERT INTO processing_files (processing_id, file_id)"
      . " VALUES (?,?)";
@@ -1368,6 +1466,10 @@ sub _insertUploadFileRecord {
 
     my $self = shift;
     my $dbh = shift;
+
+    unless ($dbh) {
+        croak ("_insertUploadFileRecord() missing \$dbh parameter.");
+    }
 
     my $newUploadFileSQL =
         "INSERT INTO upload_file (upload_id, file_id)"
@@ -1423,6 +1525,10 @@ sub _zip() {
 
     my $self = shift;
     my $dbh = shift;
+
+    unless ($dbh) {
+        croak ("_zip() missing \$dbh parameter.");
+    }
 
     # Validation
     for my $fileHR (@{$self->{'_fastqs'}}) {
@@ -1533,18 +1639,20 @@ sub _changeUploadRunStage {
     my $fromStatus = shift;
     my $toStatus = shift;
 
-    my %upload;
-
-    # Parameter validation
     unless ($dbh) {
+        $self->{'error'} = "param_changeUploadRunStage_dbh";
         croak ("_changeUploadRunStage() missing \$dbh parameter.");
     }
     unless ($fromStatus) {
+        $self->{'error'} = "param_changeUploadRunStage_fromStatus";
         croak ("_changeUploadRunStage() missing \$fromStatus parameter.");
     }
     unless ($toStatus) {
+        $self->{'error'} = "param_changeUploadRunStage_toStatus";
         croak ("_changeUploadRunStage() missing \$toStatus parameter.");
     }
+
+    my %upload;
 
     # Setup SQL
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
@@ -1556,60 +1664,57 @@ sub _changeUploadRunStage {
           AND status = ?
         ORDER by upload_id DESC limit 1";
 
-    if ($self->{'verbose'}) {
-        print ("SQL to find a lane in state $fromStatus:\n$selectionSQL\n");
-    }
-
     my $updateSQL =
        "UPDATE upload
         SET status = ?
         WHERE upload_id = ?";
 
     if ($self->{'verbose'}) {
-        print ("SQL to set to state $toStatus:\n$updateSQL\n");
+        print ("Looking for upload with status: $fromStatus\n");
     }
 
     # DB transaction
     eval {
         $dbh->begin_work();
+
         my $selectionSTH = $dbh->prepare( $selectionSQL );
-        $selectionSTH->execute( $sqlTargetForFastqUpload, $fromStatus,
-        );
+        $selectionSTH->execute( $sqlTargetForFastqUpload, $fromStatus );
         my $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
+
         if (! defined $rowHR) {
             # Nothing to update - this is a normal exit
             $dbh->commit();
             undef %upload;  # Just to be clear.
+            if ($self->{'verbose'}) {
+                print( " None found.\n" );
+            }
         }
         else {
-            # Update retrieved data, or die
+            # Will be passing this back, so make copy.
             %upload = %$rowHR;
 
-            if ($self->{'verbose'}) {
-                print( "Switching upload processing status from $fromStatus to $toStatus\n"
-                    . "; " . "UPLOAD_ID: " . $upload{'upload_id'}
-                    . "\n");
-            }
-
             unless ( $upload{'upload_id'} ) {
-                $self->{'error'} = "upload_switch_data_$fromStatus" . "_to_" . $toStatus;
-                croak "Failed to retrieve upload data when switching from $fromStatus to $toStatus.\n";
+                $self->{'error'} = "status_query_$fromStatus" . "_to_" . $toStatus;
+                croak "Failed to retrieve upload data.\n";
             }
 
-            # Do update part of transaction
+            if ($self->{'verbose'}) {
+                print(  "FOUND: sample $upload{'sample_id'}, upload $upload{'upload_id'}"
+                      . " changing from $fromStatus to $toStatus.\n" );
+            }
+
             my $updateSTH = $dbh->prepare( $updateSQL );
-            $updateSTH->execute(
-                $toStatus,
-                $upload{'upload_id'},
-            );
+            $updateSTH->execute( $toStatus, $upload{'upload_id'}, );
             if ($updateSTH->rows() != 1) {
-                $self->{'error'} = "upload_status_update_$fromStatus" . "_to_" . $toStatus;
-                croak "Updating upload status from $fromStatus to $toStatus failed:\n";
+                $self->{'error'} = "status_update_$fromStatus" . "_to_" . $toStatus;
+                croak "Failed to update upload status.\n";
             }
             $updateSTH->finish();
+
             $dbh->commit();
-            $upload{'status'} = $toStatus;
+
+            $upload{'status'} = $toStatus; # Correct local copy to match db.
         }
     };
     if ($@) {
@@ -1621,9 +1726,9 @@ sub _changeUploadRunStage {
             $error .= "\nALSO: ***Rollback appeared to fail*** $@ \n";
         }
         if (! $self->{'error'}) {
-            $self->{'error'} = "upload_status_change_$fromStatus" . "_to_" . $toStatus;
+                $self->{'error'} = "status_change_$fromStatus" . "_to_" . $toStatus;
         }
-        croak "Switching upload status from $fromStatus to $toStatus failed: $error\n";
+        croak "Error changing upload status from $fromStatus to $toStatus:\n$error\n";
     }
 
     if (! %upload) {
@@ -1645,6 +1750,11 @@ sub _getTemplateData {
     my $self = shift;
     my $dbh = shift;
     my $uploadId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = 'param_getTemplateData_dbh';
+        croak ("_getTemplateData() missing \$dbh parameter.");
+    }
 
     if (! $uploadId) {
         $self->{'error'} = 'bad_get_data_param';
@@ -1709,6 +1819,7 @@ sub _getTemplateData {
         }
         for my $key (sort keys %$data) {
             if (! defined $data->{$key} || length $data->{$key} == 0) {
+                $self->{'error'} = 'bad_tempalte_datq';
                 croak("No value obtained for template data element \'$key\'\n");
             }
         }
@@ -1718,6 +1829,7 @@ sub _getTemplateData {
                     $rowHR->{'fastq_upload_uuid'},
         );
         if (! -d $self->{'_fastqUploadDir'}) {
+            $self->{'error'} = 'dir_fastqUpload_missing';
             die("Can't find fastq upload targed directory \"$data->{'_fastqUploadDir'}\"\n");
         }
 
@@ -1725,7 +1837,9 @@ sub _getTemplateData {
     };
     if ($@) {
         my $error = $@;
-        $self->{'error'} = 'collecting_data';
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'collecting_template_data';
+        }
         croak ("Failed collecting data for template use: $@");
     }
 
@@ -1807,7 +1921,11 @@ sub _makeFileFromTemplate {
         }
     };
     if ($@) {
-        die( "$@\n" )
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'creating_file_from_template';
+        }
+        croak ("Failed creating a file $outAbsFilePath from template $templateAbsFilePath: $error");
     }
     return $outAbsFilePath;
 }
@@ -1822,7 +1940,9 @@ sub _validateMeta {
 
     my $self     = shift;
     my $uploadHR = shift;
+    
     unless ( $uploadHR ) {
+        $self->{'error'} = 'param_validateMeta_$uploadHR';
         croak( "Missing parameter: requires specifying upload record." );
     }
 
@@ -1835,7 +1955,7 @@ sub _validateMeta {
         $uploadHR->{'cghub_analysis_id'}
     );
 
-    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL  -u $fastqOutDir --validate-only";
+    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL  -u $fastqOutDir --validate-only 2>&1";
 
     if ($self->{'verbose'}) {
         print( "VALIDATE COMMAND: \"$command\"\n" );
@@ -1846,25 +1966,33 @@ sub _validateMeta {
 
     my $errorMessage = "";
     my $validateResult = qx/$command/;
-    
+
     if ($?) {
         if ($validateResult) {
+            $self->{'error'} = "exec-error-$?-with-output";
             die ("Validation error: exited with error value \"$?\". Output was:\n$validateResult\n"
                 . "Original command was:\n$command\n" );
         }
         else {
+            $self->{'error'} = "exec-error-$?-no-output";
             die ("Validation error: exited with error value \"$?\". No output was generated.\n"
                 . "Original command was:\n$command\n" );
         }
     }
     if (! $validateResult) {
+        $self->{'error'} = "exec-no-output";
         die( "Validation error: neither error nor result generated. Strange.\n"
                     . "Original command was:\n$command\n" );
     }
     if ( $validateResult !~ $OK_VALIDATED_REGEXP ) {
+        $self->{'error'} = "exec-unexpected-output";
         die( "Validation error: Apparently failed to validate.\n"
             . "Actual validation result was:\n$validateResult\n\n"
             . "Original command was:\n$command\n" );
+    }
+
+    if ($self->{'verbose'}) {
+        print("CgSubmit program (in validate mode) returned:\$validateResult\n");
     }
 
     chdir( $oldCwd );
@@ -1883,6 +2011,7 @@ sub _submitMeta {
     my $uploadHR = shift;
 
     unless ( $uploadHR ) {
+        $self->{'error'} = "param_submitMeta_uploadHR";
         croak( "Missing parameter: requires specifying upload record." );
     }
 
@@ -1897,7 +2026,7 @@ sub _submitMeta {
         $uploadHR->{'cghub_analysis_id'}
     );
 
-    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir";
+    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir  2>&1";
 
     if ($self->{'verbose'}) {
         print( "SUBMIT META COMMAND: \"$command\"\n" );
@@ -1912,32 +2041,42 @@ sub _submitMeta {
     if ($?) {
         # Unsure of exit value when get this message, so here twoce
         if (! $submitMetaResult ) {
+            $self->{'error'} = "exec-error-$?-no-output";
             die ("Submit meta error: exited with error value \"$?\". No output was generated.\n"
                 . "Original command was:\n$command\n" );
         }
         elsif ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
+            $self->{'error'} = "exec-error-$?-repeat";
             die( "Submit meta error: Already submitted. Exited with error value \"$?\".\n"
                 . "Actual submit meta result was:\n$submitMetaResult\n\n"
                 . "Original command was:\n$command\n" );
         }
         else {
+            $self->{'error'} = "exec-error-$?-with-output";
             die ("Submit meta error: exited with error value \"$?\". Output was:\n$submitMetaResult\n"
                 . "Original command was:\n$command\n" );
         }
     }
     if (! $submitMetaResult) {
+        $self->{'error'} = "exec-no-output";
         die( "Submit meta error: neither error nor result generated. Strange.\n"
                     . "Original command was:\n$command\n" );
     }
     if ( $submitMetaResult =~ $ERROR_RESUBMIT_META_REGEXP ) {
+        $self->{'error'} = "exec-repeat";
         die( "Submit meta error: Already submitted.\n"
             . "Actual submit meta result was:\n$submitMetaResult\n\n"
             . "Original command was:\n$command\n" );
     }
     if ( $submitMetaResult !~ $OK_SUBMIT_META_REGEXP ) {
+        $self->{'error'} = "exec-unexpected-output";
         die( "Submit meta error: Apparently failed to submit.\n"
             . "Actual submit meta result was:\n$submitMetaResult\n\n"
             . "Original command was:\n$command\n" );
+    }
+
+    if ($self->{'verbose'}) {
+        print("CgSubmit program (in submission mode) returned:\$submitMetaResult\n");
     }
 
     chdir( $oldCwd );
@@ -1957,6 +2096,7 @@ sub _submitFastq {
     my $uploadHR = shift;
 
     unless ( $uploadHR ) {
+        $self->{'error'} = 'param_submitFastq_uploadHR';
         croak( "Missing parameter: requires specifying upload record." );
     }
 
@@ -1993,32 +2133,42 @@ sub _submitFastq {
     if ($?) {
         # Unsure of exit value when get this message, so here twoce
         if (! $submitFastqResult ) {
+            $self->{'error'} = "exec-error-$?-no-output";
             die ("Submit fastq error: exited with error value \"$?\". No output was generated.\n"
                 . "Original command was:\n$command\n" );
         }
         elsif ( $submitFastqResult =~ $ERROR_RESUBMIT_FASTQ_REGEXP ) {
+            $self->{'error'} = "exec-error-$?-repeat";
             die( "Submit fastq error: Already submitted. Exited with error value \"$?\".\n"
                 . "Actual submit fastq result was:\n$submitFastqResult\n\n"
                 . "Original command was:\n$command\n" );
         }
         else {
+            $self->{'error'} = "exec-error-$?-with-output";
             die ("Submit fastq error: exited with error value \"$?\". Output was:\n$submitFastqResult\n"
                 . "Original command was:\n$command\n" );
         }
     }
     if (! $submitFastqResult) {
+        $self->{'error'} = "exec-no-output";
         die( "Submit fastq error: neither error nor result generated. Strange.\n"
                     . "Original command was:\n$command\n" );
     }
     if ( $submitFastqResult =~ $ERROR_RESUBMIT_FASTQ_REGEXP ) {
+        $self->{'error'} = "exec-repeat";
         die( "Submit fastq error: Already submitted.\n"
             . "Actual submit fastq result was:\n$submitFastqResult\n\n"
             . "Original command was:\n$command\n" );
     }
     if ( $submitFastqResult !~ $OK_SUBMIT_FASTQ_REGEXP ) {
+        $self->{'error'} = "exec-unexpected-output";
         die( "Submit fastq error: Apparently failed to submit.\n"
             . "Actual submit fastq result was:\n$submitFastqResult\n\n"
             . "Original command was:\n$command\n" );
+    }
+
+    if ($self->{'verbose'}) {
+        print("GtUpload program returned:\n$submitFastqResult\n");
     }
 
     chdir( $oldCwd );
