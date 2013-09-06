@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.012
+Version 0.000.013
 
 # SYNOPSIS
 
@@ -159,6 +159,16 @@ sub run {
     }
 
     $self->sayVerbose("Starting run for $runMode.");
+
+    # Allow UUID to be provided, basically for testing as this is a random value.
+    if (! $self->{'_fastqUploadUuid'}) {
+        $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
+    }
+    if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
+         $self->{'error'} = 'bad_uuid';
+         croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
+    }
+    $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
 
     # Run as selected.
     eval {
@@ -634,9 +644,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.013
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.013.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version

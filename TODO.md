@@ -1,13 +1,13 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0012 : - Improved error handling.
+This is release v0.000.0013 : - Bug-fix.
 
 # ROADMAP
 
 These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
-2013-09-03 v0.000.013 [ADD]   - Generate all xml from scratch.
+2013-09-03 v0.000.014 [ADD]   - Generate all xml from scratch.
 
 # APPROVED / REJECTED
 

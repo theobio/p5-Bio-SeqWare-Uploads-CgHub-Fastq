@@ -31,11 +31,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.012
+Version 0.000.013
 
 =cut
 
-our $VERSION = '0.000012';
+our $VERSION = '0.000013';
 
 =head1 SYNOPSIS
 
@@ -2180,7 +2180,7 @@ sub sayVerbose {
     }
     my $timestamp = getTimeStamp();
     my $uuid_tag = $self->{'_fastqUploadUuid'};
-    if ($uuid_tag && $uuid_tag =~ /(\d8)$/) {
+    if ($uuid_tag && $uuid_tag =~ /(\d{8})$/) {
         $uuid_tag = $1;
     }
     else {
@@ -2236,9 +2236,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.013
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.013.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

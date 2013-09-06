@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.013 2013-08-31 22:15:00
+ [FIX]   - Fix uuid-tag in logging.
+
 0.000.012 2013-08-31 21:15:00
  [ADD]   - Better error handling, error messages, and verbose output.
  [ADD]   - Formatted printed output, included unique-ish tag.
