@@ -177,7 +177,7 @@ sub test__changeUploadRunStage {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "verbose", @dbSession );
         $obj->{'verbose'} = 1;
-        my $expectRE = qr/Looking for upload record with status "parent_stage_completed"\./;
+        my $expectRE = qr/Looking for upload record with status "parent_stage_completed"\./s;
         stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
                      $expectRE, "Verbose info - looking for upload record message.";
     }
@@ -185,7 +185,7 @@ sub test__changeUploadRunStage {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "verbose", @dbSession );
         $obj->{'verbose'} = 1;
-        my $expectRE = qr/Found upload record with status "parent_stage_completed" - sample id = -19 upload id = -21\./;
+        my $expectRE = qr/Found upload record with status "parent_stage_completed" - sample id = -19 upload id = -21\./s;
         stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
                      $expectRE, "Verbose info - found upload record message." ;
     }
@@ -193,7 +193,7 @@ sub test__changeUploadRunStage {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "verbose", @dbSession );
         $obj->{'verbose'} = 1;
-        my $expectRE = qr/Changing status of upload record \(id = -21\) from "parent_stage_completed" to "child_stage_running"\./;
+        my $expectRE = qr/Changing status of upload record \(id = -21\) from "parent_stage_completed" to\s+"child_stage_running"\./s;
         stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
                      $expectRE, "Verbose info - updated upload record message." ;
     }

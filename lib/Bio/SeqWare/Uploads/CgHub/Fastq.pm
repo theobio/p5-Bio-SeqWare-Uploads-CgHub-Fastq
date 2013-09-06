@@ -31,11 +31,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.011
+Version 0.000.012
 
 =cut
 
-our $VERSION = '0.000011';
+our $VERSION = '0.000012';
 
 =head1 SYNOPSIS
 
@@ -107,6 +107,7 @@ sub new {
         %copy,
     };
     bless $self, $class;
+
     return $self;
 }
 
@@ -120,10 +121,10 @@ sub getUuid() {
 
     $uuid = `uuidgen`;
     if ($?) {
-        die ('ERROR: `uuidgen` exited with error, exit value was: ' . $?);
+        croak ('ERROR: `uuidgen` exited with error, exit value was: ' . $?);
     }
     if (! defined $uuid ) {
-        die( 'ERROR: `uuidgen` failed silently');
+        croak( 'ERROR: `uuidgen` failed silently');
     }
 
     chomp $uuid;
@@ -292,6 +293,16 @@ sub run {
 
     $self->sayVerbose("Starting run for $runMode.");
 
+    # Allow UUID to be provided, basically for testing as this is a random value.
+    if (! $self->{'_fastqUploadUuid'}) {
+        $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
+    }
+    if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
+         $self->{'error'} = 'bad_uuid';
+         croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
+    }
+    $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
+
     # Run as selected.
     eval {
         if ( $runMode eq "ALL" ) {
@@ -441,16 +452,6 @@ sub doZip {
     }
 
     eval {
-        # Allow UUID to be provided, basically for testing as this is a random value.
-        if (! $self->{'_fastqUploadUuid'}) {
-            $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
-        }
-        if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
-             $self->{'error'} = 'bad_uuid';
-             croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
-        }
-        $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
-
         $self->_tagLaneToUpload($dbh, "zip_running" );
         $self->_getFilesToZip( $dbh );
         $self->_zip();
@@ -2178,7 +2179,14 @@ sub sayVerbose {
         $message = "__NULL__";
     }
     my $timestamp = getTimeStamp();
-    print( wrap("[INFO] $timestamp - ", "\t", "$message\n" ));
+    my $uuid_tag = $self->{'_fastqUploadUuid'};
+    if ($uuid_tag && $uuid_tag =~ /(\d8)$/) {
+        $uuid_tag = $1;
+    }
+    else {
+        $uuid_tag = '12345678';
+    }
+    print( wrap("$uuid_tag: [INFO] $timestamp - ", "\t", "$message\n" ));
 }
 
 =head2 getTimeStamp()
@@ -2228,9 +2236,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.011
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.011.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.012.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version
