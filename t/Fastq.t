@@ -11,7 +11,7 @@ use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
 use Test::Output;         # Tests what appears on stdout.
-use Test::More 'tests' => 1 + 8;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 9;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -76,6 +76,7 @@ subtest( 'getUuid()'         => \&test_getUuid         );
 # Object methods
 subtest( 'getAll()'            => \&testGetAll );
 subtest( 'run()'               => \&testRun );
+subtest( 'sayVerbose()'   => \&test_sayVerbose);
 
 # Internal methods
 subtest( '_changeUploadRunStage()' => \&test__changeUploadRunStage );
@@ -542,6 +543,19 @@ sub test_getUuid {
     }
 }
 
+sub test_sayVerbose {
+	plan( tests => 1 );
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890AB';
+        $obj->{'verbose'} = 1;
+        my $text = 'Say something';
+        my $expectRE = qr/^567890AB: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
+        stdout_like { $obj->sayVerbose( $text )}
+                     $expectRE, "output uuid-tag, date format, and message";
+    }
+}
+
 sub testGetAll {
 	plan( tests => 2 );
     {
@@ -561,6 +575,7 @@ sub testGetAll {
 }
 
 sub testRun {
+
 	plan( tests => 5 );
     {
 	   my $obj = $CLASS->new( {} );

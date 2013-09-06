@@ -3,9 +3,19 @@ require 0.014;
 use ExtUtils::MakeMaker;
 WriteMakefile
 (
+  'PREREQ_PM' => {
+                   'File::ShareDir' => '1.00',
+                   'Bio::SeqWare::Db::Connection' => '0.000004',
+                   'Test::Output' => 0,
+                   'DBD::Mock' => '0.018',
+                   'Bio::SeqWare::Config' => '0.000003',
+                   'Test::More' => 0,
+                   'Test::File::Contents' => 0,
+                   'Template' => 0,
+                   'DBI' => 0,
+                   'DBD::Pg' => 0
+                 },
   'INSTALLDIRS' => 'site',
-  'NAME' => 'Bio::SeqWare::Uploads::CgHub::Fastq',
-  'PL_FILES' => {},
   'EXE_FILES' => [
                    'bin/cgsubmit2.pl',
                    'bin/generate_cghub_metadata.pl',
@@ -13,18 +23,8 @@ WriteMakefile
                    'bin/run_upload_cghub_fastq.sh',
                    'bin/upload-cghub-fastq.pl'
                  ],
-  'VERSION_FROM' => 'lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm',
-  'PREREQ_PM' => {
-                   'Test::File::Contents' => 0,
-                   'Test::More' => 0,
-                   'Bio::SeqWare::Db::Connection' => '0.000004',
-                   'File::ShareDir' => '1.00',
-                   'Template' => 0,
-                   'DBI' => 0,
-                   'DBD::Mock' => '0.018',
-                   'Test::Output' => 0,
-                   'DBD::Pg' => 0,
-                   'Bio::SeqWare::Config' => '0.000003'
-                 }
+  'PL_FILES' => {},
+  'NAME' => 'Bio::SeqWare::Uploads::CgHub::Fastq',
+  'VERSION_FROM' => 'lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm'
 )
 ;
