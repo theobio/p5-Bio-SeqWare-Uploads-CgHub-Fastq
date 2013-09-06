@@ -6,6 +6,10 @@ use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
 # $Carp::Verbose = 1;
 use Data::Dumper;  # Quick data structure printing
+use Time::HiRes qw( time );      # Epoch time with decimals
+use Text::Wrap qw( wrap );       # Wrapping of text in paragraphs.
+$Text::Wrap::columns = 132;      #    Wrap at column 132
+$Text::Wrap::huge = 'overflow';  #    Don't break words >= 132 characters
 
 use File::Spec;                   # Normal path handling
 use File::Path qw(make_path);     # Create multiple-directories at once
@@ -277,7 +281,7 @@ sub run {
 
             print ("DEBUG: " . Dumper($connectionBuilder));
             $dbh = $connectionBuilder->getConnection(
-                 {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1}
+                 {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1, 'ShowErrorStatement' => 1}
             );
         };
         if ($@ || ! $dbh) {
@@ -286,9 +290,7 @@ sub run {
         }
     }
 
-    if ($self->{'verbose'}) {
-        print "Running step $runMode.\n"
-    }
+    $self->sayVerbose("Starting run for $runMode.");
 
     # Run as selected.
     eval {
@@ -322,18 +324,25 @@ sub run {
 
     if ($@) {
         my $error = $@;
-        if ( $self->{'_fastqUploadId'}) {
+        if ( $self->{'_fastqUploadId'})  {
             if (! $self->{'error'}) {
                 $self->{'error'} = 'failed_run_unknown_error';
             }
-            $self->_updateUploadStatus( $dbh, $self->{'error'})
-                or $error .= " ALSO: Did not update UPLOAD: $self->{'fastqUploadId'} with ERROR: $self->{'error'}";
+            eval {
+                $self->_updateUploadStatus( $dbh, $self->{'error'} );
+            };
+            if ($@) {
+                $error .= " ALSO: Did not update UPLOAD: $self->{'_fastqUploadId'}\n";
+            }
         }
         eval {
             $dbh->disconnect();
         };
         if ($@) {
             $error .= " ALSO: error disconnecting from database: $@\n";
+        }
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'failed_run_unknown_error';
         }
         croak $error;
     }
@@ -343,6 +352,7 @@ sub run {
             my $error .= "$@";
             warn "Problem encountered disconnecting from the database - Likely ok: $error\n";
         }
+        $self->sayVerbose("Finishing run for $runMode.");
         return 1;
     }
 }
@@ -436,11 +446,14 @@ sub doZip {
             $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
         }
         if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
+             $self->{'error'} = 'bad_uuid';
              croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
         }
+        $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
+
         $self->_tagLaneToUpload($dbh, "zip_running" );
         $self->_getFilesToZip( $dbh );
-        $self->_zip( $dbh );
+        $self->_zip();
         $self->_insertFile( $dbh );
         $self->_insertUploadFileRecord( $dbh );
         $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, "zip_completed");
@@ -529,17 +542,12 @@ sub doValidate() {
     };
     if ($@) {
         my $error = $@;
-        croak $error;
-    }
-    if ($@) {
-        my $error = $@;
         if (! $self->{'error'}) {
             $self->{'error'} = 'unknown_error';
         }
         $self->{'error'} = 'failed_validate_' . $self->{'error'};
         croak $error;
     }
-
     return 1;
 }
 
@@ -559,10 +567,10 @@ sub doSubmitMeta() {
     }
 
     eval {
-        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'validate_completed', 'submit_meta_running' );
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'validate_completed', 'submit-meta_running' );
         if ($uploadHR)  {
             my $ok = $self->_submitMeta( $uploadHR );
-            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_meta_completed");
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit-meta_completed");
         }
     };
     if ($@) {
@@ -593,10 +601,10 @@ sub doSubmitFastq() {
     }
 
     eval {
-        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit_meta_completed', 'submit_fastq_running' );
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit-meta_completed', 'submit-fastq_running' );
         if ($uploadHR)  {
             my $ok = $self->_submitFastq( $uploadHR );
-            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit_fastq_completed");
+            $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "submit-fastq_completed");
         }
     };
     if ($@) {
@@ -651,32 +659,34 @@ sub _tagLaneToUpload {
     my $newUploadStatus = shift;
 
     unless ($dbh) {
-        $self->{'error'} = "param_tagLaneToUpload_dbh";
+        $self->{'error'} = "param__tagLaneToUpload_dbh";
         croak ("_tagLaneToUpload() missing \$dbh parameter.");
     }
 
     if (! $newUploadStatus) {
-        $self->{'error'} = 'no_status_param';
-        croak( "No status parameter specified." );
+        $self->{'error'} = "param__tagLaneToUpload_newUploadStatus";
+        croak ("_tagLaneToUpload() missing \$newUploadStatus parameter.");
     }
 
     eval {
         # Transaction to ensures 'find' and 'tag as found' occur in one step,
         # allowing for parallel running.
         $dbh->begin_work();
-
         $self->_findNewLaneToZip( $dbh );
-        $self->_createUploadWorkspace( $dbh );
+        $self->_createUploadWorkspace();
         $self->_insertZipUploadRecord( $dbh, $newUploadStatus);
         $dbh->commit()
     };
     if ($@) {
-        my $error = $@;
+        my $error = "Error selecting lane to run on: $@";
         eval {
             $dbh->rollback();
         };
         if ($@) {
             $error .= " ALSO: error rolling back tagLaneToUpload transaction: $@\n";
+        }
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'tagging_lane';
         }
         croak $error;
     }
@@ -734,6 +744,7 @@ sub _findNewLaneToZip {
     my $dbh = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__findNewLaneToZip_dbh';
         croak ("_findNewLaneToZip() missing \$dbh parameter.");
     }
 
@@ -755,10 +766,6 @@ sub _findNewLaneToZip {
               WHERE u.target      = ?
           ) order by vwf.lane_id DESC limit 1";
 
-    if ($self->{'verbose'}) {
-        print ("SQL to find a lane for zipping:\n$selectionSQL\n");
-    }
-
     # Execute SQL
     my $rowHR;
     eval {
@@ -777,6 +784,7 @@ sub _findNewLaneToZip {
     }
 
     if (! defined $rowHR) {
+        $self->sayVerbose("No lanes to zip.");
         return 1;  # NORMAL RETURN - Can't find candidate lanes for zipping.
     }
 
@@ -786,15 +794,13 @@ sub _findNewLaneToZip {
     $self->{'_bamUploadId'}      = $rowHR->{'upload_id'};
     $self->{'_bamUploadBaseDir'} = $rowHR->{'metadata_dir'};
     $self->{'_bamUploadUuid'}    = $rowHR->{'cghub_analysis_id'};
-    if ($self->{'verbose'}) {
-        print( "Found zip candidate"
+    $self->sayVerbose( "Found zip candidate"
             . ". " . "LANE: "                       . $self->{'_laneId'}
             . "; " . "SAMPLE: "                     . $self->{'_sampleId'}
             . "; " . "BAM UPLOAD_ID: "        . $self->{'_bamUploadId'}
             . "; " . "BAM UPLOAD_BASE_DIR: "  . $self->{'_bamUploadBaseDir'}
             . "; " . "BAM UPLOAD_UUID: "      . $self->{'_bamUploadUuid'}
-            . "\n");
-    }
+    );
 
     unless (   $self->{'_laneId'}
             && $self->{'_sampleId'}
@@ -855,12 +861,6 @@ Errors:
 sub _createUploadWorkspace {
 
     my $self = shift;
-    my $dbh = shift;
-
-    unless ($dbh) {
-        $self->{'error'} = "param_createUploadWorkspace_dbh";
-        croak ("_createUploadWorkspace() missing \$dbh parameter.");
-    }
 
     if (! -d $self->{'uploadFastqBaseDir'}) {
         $self->{'error'} = "no_fastq_base_dir";
@@ -870,6 +870,8 @@ sub _createUploadWorkspace {
     $self->{'_fastqUploadDir'} = File::Spec->catdir(
         $self->{'uploadFastqBaseDir'}, $self->{'_fastqUploadUuid'}
     );
+
+    $self->sayVerbose("New upload directory: $self->{'_fastqUploadDir'}");
 
     if (-d $self->{'_fastqUploadDir'}) {
         $self->{'error'} = 'fastq_upload_dir_exists';
@@ -881,7 +883,7 @@ sub _createUploadWorkspace {
     };
     if ($@) {
         my $error = $@;
-        $self->{'error'} = "creating_meta_dir";
+        $self->{'error'} = "creating_upload_dir";
         croak "Could not create the upload output dir: $self->{'_fastqUploadDir'}\n$!\n$@\n";
     }
 
@@ -892,7 +894,7 @@ sub _createUploadWorkspace {
     };
     if ($@) {
         my $error = $@;
-        $self->{'error'} = "copying_run_meta_file";
+        $self->{'error'} = "copying_run_xml";
         croak "Could not copy the run.xml meta file FROM: $fromRunFilePath\nTO: $toRunFilePath\n$!\n$error\n";
     }
 
@@ -903,7 +905,7 @@ sub _createUploadWorkspace {
     };
     if ($@) {
         my $error = $@;
-        $self->{'error'} = "copying_experiment_meta_files";
+        $self->{'error'} = "copying_experiment_xml";
         croak "Could not copy the experiment.xml meta file FROM: $fromExperimentFilePath\nTO: $toExperimentFilePath\n$!\n$error\n";
     }
 
@@ -952,12 +954,13 @@ sub _insertZipUploadRecord {
     my $newUploadStatus = shift;
 
     unless ($dbh) {
-        croak ("_getTemplateData() missing \$dbh parameter.");
+        $self->{'error'} = 'param__insertZipUploadRecord_dbh';
+        croak ("_insertZipUploadRecord() missing \$dbh parameter.");
     }
 
     if (! $newUploadStatus) {
-        $self->{'error'} = 'no_status_param';
-        croak( "No status parameter specified." );
+        $self->{'error'} = 'param__insertZipUploadRecord_newUploadStatus';
+        croak( "_insertZipUploadRecord() missing \$newUploadStatus parameter." );
     }
 
     # Setup SQL
@@ -967,10 +970,6 @@ sub _insertZipUploadRecord {
         "INSERT INTO upload ( sample_id, target, status, metadata_dir, cghub_analysis_id )
          VALUES ( ?, ?, ?, ?, ? )
          RETURNING upload_id";
-
-    if ($self->{'verbose'}) {
-        print ("SQL to insert new upload record for zip:\$insertUploadSQL\n");
-    }
 
     my $rowHR;
     eval {
@@ -996,9 +995,7 @@ sub _insertZipUploadRecord {
 
     $self->{'_fastqUploadId'} = $rowHR->{'upload_id'};
 
-    if ($self->{'verbose'}) {
-        print( "\nInserted fastq UPLOAD: $self->{'_fastqUploadId'}\n");
-    }
+    $self->sayVerbose("Inserted fastq UPLOAD: $self->{'_fastqUploadId'}");
 
     if (! $self->{'_fastqUploadId'}) {
         $self->{'error'} = 'fastq_upload_data';
@@ -1088,9 +1085,9 @@ Dies for a lot of database errors.
 sub _getFilesToZip {
     my $self = shift;
     my $dbh = shift;
-    $self->{'step'} = "getFastqFiles";
 
     unless ($dbh) {
+        $self->{'error'} = 'param__getFilesToZip_dbh';
         croak ("_getFilesToZip() missing \$dbh parameter.");
     }
 
@@ -1113,9 +1110,7 @@ sub _getFilesToZip {
     my $fileSelectSQL = $sampleSelectSQL
                       . " AND vwf.file_id IN ( " . $self->_fastqFilesSqlSubSelect() . " )";
 
-    if ($self->{'verbose'}) {
-        print ("SQL to look for fastq files (from FinalizeCasava): \$fileSelectSQL\n");
-    }
+    # $self->sayVerbose("SQL to look for fastq files (from FinalizeCasava): \n$fileSelectSQL\n");
 
     my $row1HR;
     my $row2HR;
@@ -1131,9 +1126,7 @@ sub _getFilesToZip {
             $self->{'_workflowAccession'} = 851553;
             $fileSelectSQL = $sampleSelectSQL
                            . " AND vwf.file_id IN ( " . $self->_fastqFilesSqlSubSelect() . " )";
-            if ($self->{'verbose'}) {
-                print ("SQL to look for fastq files (from srf2fastq): \$fileSelectSQL\n");
-            }
+            # $self->sayVerbose("SQL to look for fastq files (from srf2fastq): \n$fileSelectSQL\n");
 
             $selectionSTH = $dbh->prepare($fileSelectSQL);
             $selectionSTH->execute( $self->{'_sampleId'}, $self->{'_laneId'} );
@@ -1169,17 +1162,19 @@ sub _getFilesToZip {
     $self->{'_fastqs'}->[0]->{'md5sum'}       = $row1HR->{'md5sum'};
     $self->{'_fastqs'}->[0]->{'processingId'} = $row1HR->{'processing_id'};
 
-    if ($self->{'verbose'}) {
-        print( "\nFound fastq1 - WORKFLOW_RUN_ID: $self->{'_workflowRunId'}"
-               . " FLOWCELL: $self->{'_flowcell'}"
-               . " LANE_INDEX: $self->{'_laneIndex'}"
-               . ($self->{'_barcode'}) ? " BARCODE: $self->{'_barcode'}" : ""
-               . " FILE_PATH: $self->{'_fastqs'}->[0]->{'filePath'}"
-               . " MD5: $self->{'_fastqs'}->[0]->{'md5sum'}"
-               . " PROCESSING_ID: $self->{'_fastqs'}->[0]->{'processingId'}"
-               . "\n"
-        );
-    }
+
+    my $message = "\nFound fastq 1:";
+    $message .= " WORKFLOW_RUN_ID: " . $self->{'_workflowRunId'};
+    $message .= " FLOWCELL: "        . $self->{'_flowcell'};
+    $message .= " LANE_INDEX: "      . $self->{'_laneIndex'};
+    if ($self->{'_barcode'}) {
+       $message .= " BARCODE: " . $self->{'_barcode'};
+    };
+    $message .= " FILE_PATH: "     . $self->{'_fastqs'}->[0]->{'filePath'};
+    $message .= " MD5: "           . $self->{'_fastqs'}->[0]->{'md5sum'};
+    $message .= " PROCESSING_ID: " . $self->{'_fastqs'}->[0]->{'processingId'};
+
+    $self->sayVerbose( "$message" );
 
     unless ($self->{'_workflowRunId'}
         && $self->{'_flowcell'}
@@ -1198,17 +1193,18 @@ sub _getFilesToZip {
         $self->{'_fastqs'}->[1]->{'md5sum'}       = $row2HR->{'md5sum'};
         $self->{'_fastqs'}->[1]->{'processingId'} = $row2HR->{'processing_id'};
 
-        if ($self->{'verbose'}) {
-            print( "\nFound fastq2 - WORKFLOW_RUN_ID: $row2HR->{'workflow_run_id'}"
-                   . " FLOWCELL: $row2HR->{'flowcell'}"
-                   . " LANE_INDEX: $row2HR->{'lane_index'}"
-                   . ($row2HR->{'barcode'}) ? " BARCODE: $row2HR->{'barcode'}" : ""
-                   . " FILE_PATH: $self->{'_fastqs'}->[1]->{'filePath'}"
-                   . " MD5: $self->{'_fastqs'}->[1]->{'md5sum'}"
-                   . " PROCESSING_ID: $self->{'_fastqs'}->[1]->{'processingId'}"
-                   . "\n"
-            );
-        }
+        my $message = "\nFound fastq 2:";
+        $message .= " WORKFLOW_RUN_ID: " . $row2HR->{'workflow_run_id'};
+        $message .= " FLOWCELL: "        . $row2HR->{'flowcell'};
+        $message .= " LANE_INDEX: "      . $row2HR->{'lane_index'};
+        if ($row2HR->{'_barcode'}) {
+           $message .= " BARCODE: " . $row2HR->{'_barcode'};
+        };
+        $message .= " FILE_PATH: "     . $self->{'_fastqs'}->[1]->{'filePath'};
+        $message .= " MD5: "           . $self->{'_fastqs'}->[1]->{'md5sum'};
+        $message .= " PROCESSING_ID: " . $self->{'_fastqs'}->[1]->{'processingId'};
+
+        $self->sayVerbose( "$message" );
 
         unless ($row2HR->{'workflow_run_id'}
             && $row2HR->{'flowcell'}
@@ -1263,33 +1259,36 @@ sub _updateUploadStatus {
     my $newStatus = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__updateUploadStatus_dbh';
         croak ("_updateUploadStatus() missing \$dbh parameter.");
     }
-
-    if (! defined $newStatus || ! ($uploadId) ) {
-        croak "Can't update upload record ID = $uploadId"
-        . " to status = '$newStatus'.";
+    unless ($uploadId) {
+        $self->{'error'} = 'param__updateUploadStatus_uploadId';
+        croak ("_updateUploadStatus() missing \$uploadId parameter.");
     }
+    unless ($newStatus) {
+        $self->{'error'} = 'param__updateUploadStatus_newStatus';
+        croak ("_updateUploadStatus() missing \$newStatus parameter.");
+    }
+
     my $updateSQL =
         "UPDATE upload
          SET status = ?
          WHERE upload_id = ?";
-    if ($self->{'verbose'}) {
-        print "Update upload SQL: $updateSQL\n";
-    }
+
     eval {
         $dbh->begin_work();
         my $updateSTH = $dbh->prepare($updateSQL);
-        $updateSTH->execute($newStatus, $uploadId);
+        $updateSTH->execute( $newStatus, $uploadId );
         my $rowsAffected = $updateSTH->rows();
         $updateSTH->finish();
 
         if (! defined $rowsAffected || $rowsAffected != 1) {
+            $self->{'error'} = 'update_upload';
             croak "Update appeared to fail.";
         }
         $dbh->commit();
     };
-
     if ($@) {
         my $error = $@;
         eval {
@@ -1298,9 +1297,13 @@ sub _updateUploadStatus {
         if ($@) {
             $error .= " ALSO: error rolling back _updateUploadStatus transaction: $@\n";
         }
-        croak "Failed to update status of $uploadId to $newStatus: $error\n";
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'update_upload'
+        }
+        croak "Failed to update status of upload record upload_id=$uploadId to $newStatus: $error\n";
     }
 
+    $self->sayVerbose("Set upload status for upload_id $uploadId to \"$newStatus\".");
     return 1;
 }
 
@@ -1316,6 +1319,7 @@ sub _insertFile {
     my $dbh = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__insertFile_dbh';
         croak ("_insertFile() missing \$dbh parameter.");
     }
 
@@ -1353,6 +1357,7 @@ sub _insertFileRecord {
     my $dbh = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__insertFileRecord_dbh';
         croak ("_insertFileRecord() missing \$dbh parameter.");
     }
 
@@ -1365,9 +1370,7 @@ sub _insertFileRecord {
      . " VALUES ( ?, ?, ?, ?, ? )"
      . " RETURNING file_id";
 
-    if ($self->{'verbose'}) {
-         print "Insert file record SQL: $newFileSQL\n";
-    }
+    # $self->sayVerbose( "Insert file record SQL: $newFileSQL" );
 
     my $rowHR;
     eval {
@@ -1392,9 +1395,8 @@ sub _insertFileRecord {
     }
 
     $self->{'_zipFileId'} = $rowHR->{'file_id'};
-    if ($self->{'verbose'}) {
-        print "Inserted FILE_ID: $self->{'_zipFileId'}\n";
-    }
+    $self->sayVerbose( "Inserted FILE_ID: $self->{'_zipFileId'}" );
+
     if (! $self->{'_zipFileId'}) {
         $self->{'error'} = 'insert_file_data';
         croak "Insert of file record did not return the new record id\n";
@@ -1414,6 +1416,7 @@ sub _insertProcessingFileRecords {
     my $dbh = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__insertProcessingFileRecords_dbh';
         croak ("_insertProcessingFileRecords() missing \$dbh parameter.");
     }
 
@@ -1421,27 +1424,29 @@ sub _insertProcessingFileRecords {
         "INSERT INTO processing_files (processing_id, file_id)"
      . " VALUES (?,?)";
 
-    if ($self->{'verbose'}) {
-         print "Insert processing_files record SQL: $newProcessingFilesSQL\n";
-    }
+    # $self->sayVerbose( "Insert processing_files record SQL: $newProcessingFilesSQL" );
 
     eval {
         my $newProcessingFilesSTH = $dbh->prepare($newProcessingFilesSQL);
         $newProcessingFilesSTH->execute(
-            $self->{'_fastqs'}->[0]->{'processingId'}, $self->{'_zipFileId'}
+            $self->{'_fastqs'}->[0]->{'processingId'}, $self->{'_zipFileId'} 
         );
         my $rowsInserted = $newProcessingFilesSTH->rows();
         if ($rowsInserted != 1) {
             $self->{'error'} = "insert_processsing_files_1";
             croak "failed to insert processing_files record for fastq 1\n";
         }
-        $newProcessingFilesSTH->execute(
-            $self->{'_fastqs'}->[1]->{'processingId'}, $self->{'_zipFileId'}
-        );
-        $rowsInserted = $newProcessingFilesSTH->rows();
-        if ($rowsInserted != 1) {
-            $self->{'error'} = "insert_processsing_files_2";
-            croak "failed to insert processing_files record for fastq 2\n";
+        $self->sayVerbose("Inserted processing_file record 1.");
+        if ($self->{'_fastqs'}->[1]->{'processingId'}) {
+            $newProcessingFilesSTH->execute(
+                $self->{'_fastqs'}->[1]->{'processingId'}, $self->{'_zipFileId'}
+            );
+            $rowsInserted = $newProcessingFilesSTH->rows();
+            if ($rowsInserted != 1) {
+                $self->{'error'} = "insert_processsing_files_2";
+                croak "failed to insert processing_files record for fastq 2\n";
+            }
+            $self->sayVerbose("Inserted processing_file record 2.");
         }
     };
 
@@ -1468,6 +1473,7 @@ sub _insertUploadFileRecord {
     my $dbh = shift;
 
     unless ($dbh) {
+        $self->{'error'} = 'param__insertUploadFileRecord_dbh';
         croak ("_insertUploadFileRecord() missing \$dbh parameter.");
     }
 
@@ -1475,9 +1481,7 @@ sub _insertUploadFileRecord {
         "INSERT INTO upload_file (upload_id, file_id)"
      . " VALUES (?,?)";
 
-    if ($self->{'verbose'}) {
-         print "Insert upload_file record SQL: $newUploadFileSQL\n";
-    }
+    # $self->sayVerbose("Insert upload_file record SQL: $newUploadFileSQL");
 
     eval {
         $dbh->begin_work();
@@ -1507,6 +1511,8 @@ sub _insertUploadFileRecord {
         croak "Upload_file insert failed: $error\n";
     }
 
+    $self->sayVerbose("Inserted upload_file record");
+
     return 1;
 
 }
@@ -1524,11 +1530,6 @@ an error message.
 sub _zip() {
 
     my $self = shift;
-    my $dbh = shift;
-
-    unless ($dbh) {
-        croak ("_zip() missing \$dbh parameter.");
-    }
 
     # Validation
     for my $fileHR (@{$self->{'_fastqs'}}) {
@@ -1593,11 +1594,10 @@ sub _zip() {
         );
         $command .= " $file1";
     }
-    if  ($self->{'verbose'} ) {
-        print "ZIP COMMAND: $command\n";
-    }
 
+    $self->sayVerbose( "ZIP COMMAND: $command\n");
     my $ok = system( $command );
+
     if ( $ok != 0 || ! (-f $zipFile) || (-s $zipFile) < (( $self->{'minFastqSize'} / 100 ) + 1 )) {
         $self->{'error'} = "executing_tar_gzip";
         croak "Failed executing the zip command [$command] with error: $ok\n";
@@ -1640,15 +1640,15 @@ sub _changeUploadRunStage {
     my $toStatus = shift;
 
     unless ($dbh) {
-        $self->{'error'} = "param_changeUploadRunStage_dbh";
+        $self->{'error'} = "param__changeUploadRunStage_dbh";
         croak ("_changeUploadRunStage() missing \$dbh parameter.");
     }
     unless ($fromStatus) {
-        $self->{'error'} = "param_changeUploadRunStage_fromStatus";
+        $self->{'error'} = "param__changeUploadRunStage_fromStatus";
         croak ("_changeUploadRunStage() missing \$fromStatus parameter.");
     }
     unless ($toStatus) {
-        $self->{'error'} = "param_changeUploadRunStage_toStatus";
+        $self->{'error'} = "param__changeUploadRunStage_toStatus";
         croak ("_changeUploadRunStage() missing \$toStatus parameter.");
     }
 
@@ -1669,9 +1669,7 @@ sub _changeUploadRunStage {
         SET status = ?
         WHERE upload_id = ?";
 
-    if ($self->{'verbose'}) {
-        print ("Looking for upload with status: $fromStatus\n");
-    }
+    $self->sayVerbose("Looking for upload record with status \"$fromStatus\".");
 
     # DB transaction
     eval {
@@ -1686,9 +1684,7 @@ sub _changeUploadRunStage {
             # Nothing to update - this is a normal exit
             $dbh->commit();
             undef %upload;  # Just to be clear.
-            if ($self->{'verbose'}) {
-                print( " None found.\n" );
-            }
+            $self->sayVerbose("Found no uplaad record with status \"$fromStatus\"." );
         }
         else {
             # Will be passing this back, so make copy.
@@ -1698,11 +1694,13 @@ sub _changeUploadRunStage {
                 $self->{'error'} = "status_query_$fromStatus" . "_to_" . $toStatus;
                 croak "Failed to retrieve upload data.\n";
             }
-
-            if ($self->{'verbose'}) {
-                print(  "FOUND: sample $upload{'sample_id'}, upload $upload{'upload_id'}"
-                      . " changing from $fromStatus to $toStatus.\n" );
+            unless ( $upload{'sample_id'} ) {
+                $self->{'error'} = "status_query_$fromStatus" . "_to_" . $toStatus;
+                croak "Failed to retrieve sample id in upload data.\n";
             }
+
+            $self->sayVerbose("Found upload record with status \"$fromStatus\" - sample id = $upload{'sample_id'} upload id = $upload{'upload_id'}.");
+            $self->sayVerbose("Changing status of upload record (id = $upload{'upload_id'}) from \"$fromStatus\" to \"$toStatus\".\n" );
 
             my $updateSTH = $dbh->prepare( $updateSQL );
             $updateSTH->execute( $toStatus, $upload{'upload_id'}, );
@@ -1776,9 +1774,7 @@ sub _getTemplateData {
           AND uf.file_id = vf.file_id
           AND vf.lane_id = l.lane_id";
 
-    if ($self->{'verbose'}) {
-        print ("SQL to get template data:\n$selectAllSQL\n");
-    }
+    #$self->sayVerbose( "SQL to get template data:\n$selectAllSQL" );
 
     my $data = {};
     eval {
@@ -1811,11 +1807,11 @@ sub _getTemplateData {
                 ),
         };
         if ($self->{'verbose'}) {
-            print( "Template Data:\n" );
+            my $message = "Template Data:\n";
             for my $key (sort keys %$data) {
-                print ("\t\"$key\" = \"$data->{$key}\"\n" );
+                $message .= "\t\"$key\" = \"$data->{$key}\"\n";
             }
-
+            $self->sayVerbose( $message );
         }
         for my $key (sort keys %$data) {
             if (! defined $data->{$key} || length $data->{$key} == 0) {
@@ -1834,6 +1830,7 @@ sub _getTemplateData {
         }
 
         symlink( $rowHR->{'file_path'}, File::Spec->catfile( $self->{'_fastqUploadDir'}, $localFileLink ));
+        $self->sayVerbose("Created local link \"$localFileLink\"");
     };
     if ($@) {
         my $error = $@;
@@ -1900,13 +1897,10 @@ sub _makeFileFromTemplate {
         );
     }
 
-    if ($self->{'verbose'}) {
-        print(
-            "TEMPLATE: $templateAbsFilePath\n"
+    $self->sayVerbose( "TEMPLATE: $templateAbsFilePath\n"
             ."OUTFILE: $outAbsFilePath\n"
             ."DATA: \n" . Dumper($dataHR)
-        );
-    }
+    );
     eval {
         my $templateManagerConfigHR = {
             'ABSOLUTE' => 1,
@@ -1940,7 +1934,7 @@ sub _validateMeta {
 
     my $self     = shift;
     my $uploadHR = shift;
-    
+
     unless ( $uploadHR ) {
         $self->{'error'} = 'param_validateMeta_$uploadHR';
         croak( "Missing parameter: requires specifying upload record." );
@@ -1957,9 +1951,7 @@ sub _validateMeta {
 
     my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL  -u $fastqOutDir --validate-only 2>&1";
 
-    if ($self->{'verbose'}) {
-        print( "VALIDATE COMMAND: \"$command\"\n" );
-    }
+    $self->sayVerbose( "VALIDATE COMMAND: \"$command\"" );
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -1991,9 +1983,7 @@ sub _validateMeta {
             . "Original command was:\n$command\n" );
     }
 
-    if ($self->{'verbose'}) {
-        print("CgSubmit program (in validate mode) returned:\$validateResult\n");
-    }
+    $self->sayVerbose("CgSubmit program (in validate mode) returned:\n$validateResult\n");
 
     chdir( $oldCwd );
     return 1;
@@ -2028,9 +2018,7 @@ sub _submitMeta {
 
     my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir  2>&1";
 
-    if ($self->{'verbose'}) {
-        print( "SUBMIT META COMMAND: \"$command\"\n" );
-    }
+    $self->sayVerbose( "SUBMIT META COMMAND: \"$command\"\n" );
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -2075,9 +2063,7 @@ sub _submitMeta {
             . "Original command was:\n$command\n" );
     }
 
-    if ($self->{'verbose'}) {
-        print("CgSubmit program (in submission mode) returned:\$submitMetaResult\n");
-    }
+    $self->sayVerbose("CgSubmit program (in submission mode) returned:\n$submitMetaResult\n");
 
     chdir( $oldCwd );
     return 1;
@@ -2120,9 +2106,7 @@ sub _submitFastq {
     # parameters?
     my $command = "$GTUPLOAD_EXEC -vvvv -c $SECURE_CERTIFICATE -u $uploadManifest -p $fastqOutDir 2>&1";
 
-    if ($self->{'verbose'}) {
-        print( "SUBMIT FASTQ COMMAND: \"$command\"\n" );
-    }
+    $self->sayVerbose( "SUBMIT FASTQ COMMAND: \"$command\"");
 
     my $oldCwd = getcwd();
     chdir( $fastqOutDir );
@@ -2167,15 +2151,57 @@ sub _submitFastq {
             . "Original command was:\n$command\n" );
     }
 
-    if ($self->{'verbose'}) {
-        print("GtUpload program returned:\n$submitFastqResult\n");
-    }
+    $self->sayVerbose("GtUpload program returned:\n$submitFastqResult\n");
 
     chdir( $oldCwd );
     return 1;
 
 }
 
+=head2 $self->sayVerbose()
+
+    $self->sayverbose( $message ).
+
+Prints the given message preceeded with "[INFO] $timestamp - ", wrapped to
+132 columns with all lines after the first indented with a "\t". The
+timestamp is generated by C<getTimeStamp()>.
+
+=cut
+
+sub sayVerbose {
+    my $self = shift;
+    my $message = shift;
+    unless ( $self->{'verbose'} ) {
+        return;
+    }
+    if (! defined $message) {
+        $message = "__NULL__";
+    }
+    my $timestamp = getTimeStamp();
+    print( wrap("[INFO] $timestamp - ", "\t", "$message\n" ));
+}
+
+=head2 getTimeStamp()
+
+    $self->getTimeStamp().
+    $self->getTimeStamp( $unixTime ).
+
+Returns a timestamp formated like YYYY-MM-DD_HH:MM:SS, zero padded, 24 hour
+time. If a parameter is passed, it is assumed to be a unix epoch time (integer
+seconds since Unix 0). If no parameter is passed, the current time will be
+queried. Time is parsed through perl's localtime().
+
+=cut
+
+sub getTimeStamp {
+    my $time = shift;
+    if (!$time) {
+       $time = time();
+    }
+    my ($sec, $min, $hr, $day, $mon, $yr) = localtime($time);
+    return sprintf ( "%04d-%02d-%02d_%02d:%02d:%02d",
+                     $yr+1900, $mon+1, $day, $hr, $min, $sec);
+}
 
 =head1 AUTHOR
 

@@ -16,7 +16,7 @@ use Bio::SeqWare::Uploads::CgHub::Fastq 0.000002; # Latest dev build.
 use Test::Output;               # Test STDOUT and STDERR output.
 use DBD::Mock;
 use Test::File::Contents;
-use Test::More 'tests' => 4;    # Run this many Test::More compliant subtests
+use Test::More 'tests' => 3;    # Run this many Test::More compliant subtests
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
@@ -41,13 +41,12 @@ my $MOCK_DBH = DBI->connect(
 );
 
 subtest( 'doMeta()'                => \&test_doMeta );
-subtest( '_changeUploadRunStage()' => \&test__changeUploadRunStage );
 subtest( '_getTemplateData()'      => \&test__getTemplateData      );
 subtest( '_makeFileFromTemplate'   => \&test__makeFileFromTemplate );
 
 
 sub test_doMeta {
-    plan( tests => 1 );
+    plan( tests => 5 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "zip_completed";
@@ -59,6 +58,7 @@ sub test_doMeta {
     my $sampleTcgaUuid = "66770b06-2cd6-4773-b8e8-5b38faa4f5a4";
     my $laneAccession  = 2090626;
     my $fileAccession  = 2149605;
+    my $sampleId  = -19;
     my $fileMd5sum     = "4181ac122b0a09f28cde79a9c3d5af39";
     my $filePath       = "/path/to/file/130702_UNC9-SN296_0379_AC25KWACXX_6_ACTTGA.fastq.tar.gz";
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -73,8 +73,8 @@ sub test_doMeta {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
         'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid         ],
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,          $sampleId  ],
         ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
@@ -112,224 +112,40 @@ sub test_doMeta {
     {
         my $obj = $CLASS->new( $OPT_HR );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "doMetaOk", @dbSession );
-        is(1, $obj->doMeta( $MOCK_DBH ), "SmokeTest doMeta" );
+        {
+            is(1, $obj->doMeta( $MOCK_DBH ), "SmokeTest doMeta" );
+        }
     }
-}
 
-sub test__changeUploadRunStage {
-    plan( tests => 15 );
-
-    my $oldStatus = "parent_stage_completed";
-    my $newStatus = "child_stage_running";
-    my $uploadId  = -21;
-    my $sampleId  = -19;
-    my $metaDataDir = 't';
-    my $uuid      = 'Data';
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
-
-    my $obj = $CLASS->new( $OPT_HR );
-    my $fakeUploadHR = {
-        'upload_id'         => $uploadId,
-        'cghub_analysis_id' => $uuid,
-        'metadata_dir'      => $metaDataDir,
-        'status'            => $newStatus,
-    };
-
-    my @dbSession = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-        'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
-            [ $uploadId,   $oldStatus, $metaDataDir,   $uuid               ],
-        ]
-    }, {
-        'statement'    => qr/UPDATE upload/msi,
-        'bound_params' => [ $newStatus,  $uploadId ],
-        'results'  => [[ 'rows' ], []]
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
-
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "smoke test", @dbSession );
-        is_deeply( $fakeUploadHR, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing dbh parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( undef, $oldStatus, $newStatus);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$dbh parameter\./, "Bad param 1 - dbh");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing oldStatus parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( $MOCK_DBH, undef, $newStatus);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$fromStatus parameter\./, "Bad param 2 - $oldStatus");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing newStatus parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, undef);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$toStatus parameter\./, "Bad param 3 - $newStatus");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose not", @dbSession );
-        stdout_unlike {
-            $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/SQL to find a lane/, 'No 1st messages if not verbose';
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose not 2", @dbSession );
-        stdout_unlike {
-             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/SQL to set to state/, 'No 2nd messages if not verbose';
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose not 3", @dbSession );
-        stdout_unlike {
-             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/\; UPLOAD_BASE_DIR/, 'No 3rd messages if not verbose';
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose", @dbSession );
-        $obj->{'verbose'} = 1;
-        stdout_is {
-            $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } "SQL to find a lane in state $oldStatus:\n"
-        . "SELECT *
-        FROM upload
-        WHERE target = ?
-          AND status = ?
-        ORDER by upload_id DESC limit 1"
-        . "\n"
-        . "SQL to set to state $newStatus:\n"
-        . "UPDATE upload
-        SET status = ?
-        WHERE upload_id = ?"
-        . "\n"
-        ."Switching upload processing status from $oldStatus to $newStatus\n"
-        . "; " . "UPLOAD_ID: "        . $uploadId
-        . "\n",
-        "verbose output";
-    }
+    # Bad param: $dbh
     {
         my $obj = $CLASS->new( $OPT_HR );
-
-        my @dbSession = ({
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-            'results'  => [[]]
-        }, {
-           'statement' => 'COMMIT',
-           'results'   => [[]],
-        });
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "select Nothing", @dbSession );
-
-        is( undef, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select nothing upload appeard to work");
-    }
-    {
-        my @dbSession = ({
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-            'results'  => [[ 'upload_id' ], []]
-        }, {
-           'statement' => 'ROLLBACK',
-            'results'  => [[]],
-        });
+        eval {
+             $obj->doMeta();
+        };
         {
-            my $obj = $CLASS->new( $OPT_HR );
-            $MOCK_DBH->{'mock_session'} =
-                DBD::Mock::Session->new( "Missing uploadId result", @dbSession );
-            eval {
-               $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus);
-            };
-            like($@, qr/Failed to retrieve upload data when switching from $oldStatus to $newStatus/, "Bad uploadId" );
-            is( $obj->{'error'}, "upload_switch_data_" . $oldStatus . "_to_" . $newStatus , "error for bad uploadId" );
+          like( $@, qr/^doMeta\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'failed_meta_param_doMeta_dbh', "Errror tag if no dbh param");
         }
     }
+    
+    # Error propagation on error.
     {
-        my @dbSession = ({
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-            'results'  => [[ 'upload_id' ], [ $uploadId ]]
-        }, {
-            'statement'    => qr/UPDATE upload/msi,
-            'bound_params' => [ $newStatus,  $uploadId ],
-            'results'  => [[]]
-        }, {
-           'statement' => 'ROLLBACK',
-            'results'  => [[]],
-        });
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doMeta( $MOCK_DBH );
+        };
         {
-            my $obj = $CLASS->new( $OPT_HR );
-            $MOCK_DBH->{'mock_session'} =
-                DBD::Mock::Session->new( "Missing uploadId result", @dbSession );
-            eval {
-               $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus);
-            };
-            like($@, qr/Updating upload status from $oldStatus to $newStatus failed/, "Bad uploadId" );
-            is( $obj->{'error'}, "upload_status_update_" . $oldStatus . "_to_" . $newStatus , "error for bad uploadId" );
+          like( $@, qr/^Error changing upload status from zip_completed to meta_running/, "Error propogates out");
+          is( $obj->{'error'}, 'failed_meta_status_change_zip_completed_to_meta_running', "Errror tag propogates out");
         }
     }
 
-    {
-        my @dbSession = ({
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
-            'results'  => [[ 'upload_id' ], [ $uploadId ]]
-        }, {
-            'statement'    => qr/UPDATE upload/msi,
-            'bound_params' => [ $newStatus,  $uploadId ],
-            'results'  => [[]]
-        },
-#        {
-#           'statement' => 'ROLLBACK',
-#            'results'  => [[]],
-#        }
-        );
-        {
-            my $obj = $CLASS->new( $OPT_HR );
-            $MOCK_DBH->{'mock_session'} =
-                DBD::Mock::Session->new( "Missing uploadId result", @dbSession );
-            eval {
-               $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus);
-            };
-            like($@, qr/Updating upload status from $oldStatus to $newStatus failed/, "Bad uploadId" );
-            is( $obj->{'error'}, "upload_status_update_" . $oldStatus . "_to_" . $newStatus , "error for bad uploadId" );
-        }
-    }
 }
 
+
 sub test__getTemplateData {
-    plan( tests => 14 );
+    plan( tests => 13 );
 
     # Chosen to match analysis.xml data file
     my $uploadId       = 7851;
@@ -409,43 +225,43 @@ sub test__getTemplateData {
         }
         $dbSession[0]->{'results'}->[1]->[5] = "$filePath";
     }
-    {
-         my $obj = $CLASS->new( $OPT_HR );
-         $obj->{'verbose'} = 1;
-         $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "Verbose check", @dbSession );
-        {
-        stdout_is {
-            $obj->_getTemplateData( $MOCK_DBH, $uploadId )
-        } "SQL to get template data:\n"
-     . "SELECT vf.tstmp             as file_timestamp,
-               vf.tcga_uuid         as sample_tcga_uuid,
-               l.sw_accession       as lane_accession,
-               vf.file_sw_accession as file_accession,
-               vf.md5sum            as file_md5sum,
-               vf.file_path,
-               u.metadata_dir       as fastq_upload_basedir,
-               u.cghub_analysis_id  as fastq_upload_uuid
-        FROM upload u, upload_file uf, vw_files vf, lane l
-        WHERE u.upload_id = ?
-          AND u.upload_id = uf.upload_id
-          AND uf.file_id = vf.file_id
-          AND vf.lane_id = l.lane_id"
-        . "\n"
-        . "Template Data:\n"
-        . "\t\"analysis_date\" = \"$xmlTimestamp\"\n"
-        . "\t\"file_accession\" = \"$fileAccession\"\n"
-        . "\t\"file_md5sum\" = \"$fileMd5sum\"\n"
-        . "\t\"file_path_base\" = \"$fileBase\"\n"
-        . "\t\"lane_accession\" = \"$laneAccession\"\n"
-        . "\t\"program_version\" = \"$Bio::SeqWare::Uploads::CgHub::Fastq::VERSION\"\n"
-        . "\t\"sample_tcga_uuid\" = \"$sampleTcgaUuid\"\n"
-        . "\t\"uploadIdAlias\" = \"$uploadIdAlias\"\n"
-        . "\t\"upload_file_name\" = \"$localFileLink\"\n"
-        ,
-        "verbose output";
-        }
-    }
+#    {
+#         my $obj = $CLASS->new( $OPT_HR );
+#         $obj->{'verbose'} = 1;
+#         $MOCK_DBH->{'mock_session'} =
+#            DBD::Mock::Session->new( "Verbose check", @dbSession );
+#        {
+#        stdout_is {
+#            $obj->_getTemplateData( $MOCK_DBH, $uploadId )
+#        } "SQL to get template data:\n"
+#     . "SELECT vf.tstmp             as file_timestamp,
+#               vf.tcga_uuid         as sample_tcga_uuid,
+#               l.sw_accession       as lane_accession,
+#               vf.file_sw_accession as file_accession,
+#               vf.md5sum            as file_md5sum,
+#               vf.file_path,
+#               u.metadata_dir       as fastq_upload_basedir,
+#               u.cghub_analysis_id  as fastq_upload_uuid
+#        FROM upload u, upload_file uf, vw_files vf, lane l
+#        WHERE u.upload_id = ?
+#          AND u.upload_id = uf.upload_id
+#          AND uf.file_id = vf.file_id
+#          AND vf.lane_id = l.lane_id"
+#        . "\n"
+#        . "Template Data:\n"
+#        . "\t\"analysis_date\" = \"$xmlTimestamp\"\n"
+#        . "\t\"file_accession\" = \"$fileAccession\"\n"
+#        . "\t\"file_md5sum\" = \"$fileMd5sum\"\n"
+#        . "\t\"file_path_base\" = \"$fileBase\"\n"
+#        . "\t\"lane_accession\" = \"$laneAccession\"\n"
+#        . "\t\"program_version\" = \"$Bio::SeqWare::Uploads::CgHub::Fastq::VERSION\"\n"
+#        . "\t\"sample_tcga_uuid\" = \"$sampleTcgaUuid\"\n"
+#        . "\t\"uploadIdAlias\" = \"$uploadIdAlias\"\n"
+#        . "\t\"upload_file_name\" = \"$localFileLink\"\n"
+#        ,
+#        "verbose output";
+#        }
+#    }
     {
         my $obj = $CLASS->new( $OPT_HR );
         eval {
@@ -466,7 +282,7 @@ sub test__getTemplateData {
         };
         {
             like ($@, qr/No value obtained for template data element \'file_path_base\'/, "fatal with empty file_path_base.");
-            is ($obj->{'error'}, "collecting_data", "error type for missing data");
+            is ($obj->{'error'}, "bad_tempalte_datq", "error type for missing data");
         }
         $dbSession[0]->{'results'}->[1]->[5] = $filePath;
     }
@@ -480,7 +296,7 @@ sub test__getTemplateData {
         };
         {
             like ($@, qr/No value obtained for template data element \'file_md5sum\'/, "fatal with undefined md5Sum.");
-            is ($obj->{'error'}, "collecting_data", "error type for empty data");
+            is ($obj->{'error'}, "bad_tempalte_datq", "error type for empty data");
         }
         $dbSession[0]->{'results'}->[1]->[4] = $fileMd5sum;
     }

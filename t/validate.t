@@ -65,12 +65,13 @@ subtest( 'doValidate()'    => \&test_doValidate   );
 subtest( '_validateMeta()' => \&test__validateMeta );
 
 sub test_doValidate {
-    plan( tests => 1 );
+    plan( tests => 5 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "meta_completed";
     my $newStatus = "validate_running";
     my $finalStatus = "validate_completed";
+    my $sampleId    = -21;
 
     my $uploadId       = 7851;
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -88,8 +89,8 @@ sub test_doValidate {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
         'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid         ],
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId  ],
         ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
@@ -123,6 +124,31 @@ sub test_doValidate {
 	    }
         $mock_readpipe->{'mock'} = 0;
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doValidate();
+        };
+        {
+          like( $@, qr/^doValidate\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'failed_validate_param_doValidate_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Error propagation on error.
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doValidate( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Error changing upload status from meta_completed to validate_running/, "Error propogates out");
+          is( $obj->{'error'}, 'failed_validate_status_change_meta_completed_to_validate_running', "Errror tag propogates out");
+        }
+    }
+
 }
 
 sub test__validateMeta {

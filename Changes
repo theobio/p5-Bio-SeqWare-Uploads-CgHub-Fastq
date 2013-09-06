@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.012 2013-08-31 21:15:00
+ [Add]   - Better error handling, error messages, and verbose output.
+
 0.000.011 2013-08-31 21:15:00
  [FIX]   - Must read stderr from gtupload to get any kind of "done" messages.
 

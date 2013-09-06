@@ -65,12 +65,13 @@ subtest( 'doSubmitMeta()'  => \&test_doSubmitMeta  );
 subtest( '_submitMeta()'   => \&test__submitMeta   );
 
 sub test_doSubmitMeta {
-     plan( tests => 1 );
+     plan( tests => 5 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "validate_completed";
-    my $newStatus = "submit_meta_running";
-    my $finalStatus = "submit_meta_completed";
+    my $newStatus = "submit-meta_running";
+    my $finalStatus = "submit-meta_completed";
+    my $sampleId = -21;
 
     my $uploadId       = 7851;
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -96,8 +97,8 @@ sub test_doSubmitMeta {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
         'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid         ],
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId   ],
         ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
@@ -131,6 +132,32 @@ sub test_doSubmitMeta {
 	    }
         $mock_readpipe->{'mock'} = 0;
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doSubmitMeta();
+        };
+        {
+          like( $@, qr/^doSubmitMeta\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'failed_submit-meta_param_doSubmitMeta_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Error propagation on error.
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doSubmitMeta( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Error changing upload status from validate_completed to submit-meta_running/, "Error propogates out");
+          is( $obj->{'error'}, 'failed_submit-meta_status_change_validate_completed_to_submit-meta_running', "Errror tag propogates out");
+        }
+    }
+
+
 }
 
 sub test__submitMeta {

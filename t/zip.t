@@ -7,7 +7,7 @@ use Carp;                 # Caller-relative error messages
 use Data::Dumper;         # Quick error messages
 use File::Spec;           # Portable file handling
 
-use File::Temp;                     # Simple files for testing
+use File::Temp;           # Simple files for testing
 use DBI;
 
 use Bio::SeqWare::Config; # Access SeqWare settings file as options
@@ -43,7 +43,7 @@ my $FASTQ_MISMATCH_MD5 = '23487060edd0e7121daab3f03177828f';
 my $CONFIG = Bio::SeqWare::Config->new();
 my $OPT = $CONFIG->getKnown();
 my $OPT_HR = { %$OPT,
-    'runMode'      => 'alL',
+    'runMode'      => 'zIP',
     'minFastqSize' => 10,
     'dataRoot'     => $TEMP_DIR,
     'uploadFastqBaseDir' => $TEMP_DIR,
@@ -90,7 +90,6 @@ subtest( '_insertZipUploadRecord()'    => \&test__insertZipUploadRecord );
 subtest( '_tagLaneToUpload()'          => \&test__tagLaneToUpload );
 subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
 subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
-subtest( '_updateUploadStatus()'       => \&test__updateUploadStatus);
 subtest( '_zip()'                      => \&test__zip );
 subtest( '_insertFileRecord()'         => \&test__insertFileRecord);
 subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
@@ -98,7 +97,7 @@ subtest( '_insertFile()'               => \&test__insertFile);
 subtest( '_insertUploadFileRecord()'   => \&test__insertUploadFileRecord);
 
 subtest( '_doZip()' => \&test__doZip );
-
+subtest( 'run_zip' => \&test_run_zip );
 
 #
 # Subtests
@@ -109,7 +108,7 @@ sub test_getUuid {
 }
 
 sub test__findNewLaneToZip {
-    plan( tests => 12 );
+    plan( tests => 14 );
 
     my $sampleId    = -19;
     my $laneId      = -12;
@@ -207,6 +206,19 @@ sub test__findNewLaneToZip {
             is( $got, $want, "Mapsplice upload UUID not retrieved for object" );
         }
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_findNewLaneToZip();
+        };
+        {
+          like( $@, qr/^_findNewLaneToZip\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__findNewLaneToZip_dbh', "Errror tag if no dbh param");
+        }
+    }
+
 }
 
 sub test__createUploadWorkspace {
@@ -276,7 +288,7 @@ sub test__createUploadWorkspace {
 }
 
 sub test__insertZipUploadRecord {
-    plan( tests => 2 );
+    plan( tests => 6 );
 
     # Object will be modified, so need local
     my $sampleId    = -19;
@@ -309,6 +321,31 @@ sub test__insertZipUploadRecord {
        my $want = $uploadId;
        is( $got, $want, "Upload id stored in object" );
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertZipUploadRecord();
+        };
+        {
+          like( $@, qr/^_insertZipUploadRecord\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertZipUploadRecord_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Bad param: $newUploadStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertZipUploadRecord( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^_insertZipUploadRecord\(\) missing \$newUploadStatus parameter\./, "Error if no newUploadStatus param");
+          is( $obj->{'error'}, 'param__insertZipUploadRecord_newUploadStatus', "Errror tag if no newUploadStatus param");
+        }
+    }
+
 }
 
 sub test__fastqFilesSqlSubSelect {
@@ -367,7 +404,7 @@ sub test__fastqFilesSqlSubSelect {
 }
 
 sub test__tagLaneToUpload {
-    plan( tests => 2 );
+    plan( tests => 6 );
 
     # Most of this was tested with the individual methods. This checks the
     # combination works.
@@ -421,10 +458,34 @@ sub test__tagLaneToUpload {
        is( $got, $want, "Upload id stored in object" );
     }
 
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_tagLaneToUpload();
+        };
+        {
+          like( $@, qr/^_tagLaneToUpload\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__tagLaneToUpload_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Bad param: $newUploadStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_tagLaneToUpload( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^_tagLaneToUpload\(\) missing \$newUploadStatus parameter\./, "Error if no newUploadStatus param");
+          is( $obj->{'error'}, 'param__tagLaneToUpload_newUploadStatus', "Errror tag if no newUploadStatus param");
+        }
+    }
+
 }
 
 sub test__getFilesToZip {
-    plan( tests => 76 );
+    plan( tests => 78 );
     my $sampleId = -19;
     my $laneId = -12;
     my $uploadId = -21;
@@ -640,6 +701,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[2] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -653,6 +715,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[3] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -666,6 +729,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[4] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -679,6 +743,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[2] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -692,6 +757,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[3] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -705,6 +771,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[4] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -718,6 +785,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[0] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -731,6 +799,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[1] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -744,6 +813,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[2]->[6] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -757,7 +827,8 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[0] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
-                $obj->_getFilesToZip( $MOCK_DBH );
+                  local $SIG{__WARN__} = sub { };
+                  $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
                 like( $@, qr/Missing data for fastq file 1./, "error if no _fastqs->0->filePath val" );
@@ -770,6 +841,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[1] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -783,6 +855,7 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[6] = undef;
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'two613863', @dbEventsTwoFilesMissingData );
             eval {
+                local $SIG{__WARN__} = sub { };
                 $obj->_getFilesToZip( $MOCK_DBH );
             };
             {
@@ -792,6 +865,18 @@ sub test__getFilesToZip {
             $dbEventsTwoFilesMissingData[0]->{'results'}->[1]->[6] = $processingId1;
         }
     }
+        # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_getFilesToZip();
+        };
+        {
+          like( $@, qr/^_getFilesToZip\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__getFilesToZip_dbh', "Errror tag if no dbh param");
+        }
+    }
+
 }
 
 sub test__zip {
@@ -932,39 +1017,9 @@ sub test__zip {
     }
 }
 
-sub test__updateUploadStatus {
-
-    plan ( tests => 1 );
-
-    my $newStatus  = 'test_ignore_not-real-status';
-    my $uploadId= -21;
-
-    my $obj = $CLASS->new( $OPT_HR );
-    $obj->{'_fastqUploadId'} = $uploadId;
-
-    my @dbSession = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $newStatus, $uploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
-
-    $MOCK_DBH->{'mock_session'} =
-        DBD::Mock::Session->new( $newStatus, @dbSession );
-    {
-        is( 1, $obj->_updateUploadStatus( $MOCK_DBH, $uploadId, $newStatus ), "Updated upload status." );
-    }
-
-}
-
 sub test__insertFileRecord {
 
-    plan ( tests => 2 );
+    plan ( tests => 4 );
 
     my $fileId = -6;
 
@@ -982,10 +1037,23 @@ sub test__insertFileRecord {
         is( 1, $obj->_insertFileRecord( $MOCK_DBH ), "Insert file record" );
         is( $fileId, $obj->{'_zipFileId'}, "File ID set" );
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertFileRecord();
+        };
+        {
+          like( $@, qr/^_insertFileRecord\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertFileRecord_dbh', "Errror tag if no dbh param");
+        }
+    }
+
 }
 
 sub test__insertProcessingFileRecord {
-    plan ( tests => 1 );
+    plan ( tests => 3 );
 
     my $fileId = -6;
     my $processingId1 = -20;
@@ -1006,14 +1074,26 @@ sub test__insertProcessingFileRecord {
     $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
     $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
 
-
     {
         is( 1, $obj->_insertProcessingFileRecords( $MOCK_DBH ), "Insert processingfile records" );
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertProcessingFileRecords();
+        };
+        {
+          like( $@, qr/^_insertProcessingFileRecords\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertProcessingFileRecords_dbh', "Errror tag if no dbh param");
+        }
+    }
+
 }
 
 sub test__insertFile {
-    plan ( tests => 1 );
+    plan ( tests => 3 );
 
     my $fileId = -6;
     my $processingId1 = -20;
@@ -1049,10 +1129,23 @@ sub test__insertFile {
         is( 1, $obj->_insertFile( $MOCK_DBH ), "Insert file record transaction" );
     }
 
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertFile();
+        };
+        {
+          like( $@, qr/^_insertFile\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertFile_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Error propagation
 }
 
 sub test__insertUploadFileRecord {
-    plan ( tests => 1 );
+    plan ( tests => 3 );
 
     my $fileId = -6;
     my $uploadId = -20;
@@ -1077,9 +1170,21 @@ sub test__insertUploadFileRecord {
         is( 1, $obj->_insertUploadFileRecord( $MOCK_DBH ), "Insert upload_file record" );
     }
  
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_insertUploadFileRecord();
+        };
+        {
+          like( $@, qr/^_insertUploadFileRecord\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertUploadFileRecord_dbh', "Errror tag if no dbh param");
+        }
+    }
 }
 
 sub test__doZip {
+    plan ( tests => 5 );
 
     # Bam upload record info.
     my $laneId         = 12;
@@ -1090,7 +1195,7 @@ sub test__doZip {
 
     # Fastq upload record info;
     my $fastqUploadId    = 521;
-    my $fastqMetaDataDir = $TEMP_DIR;                              # Parent directory for the fastq upload
+    my $fastqMetaDataDir = $TEMP_DIR;  # Parent directory for the fastq upload
     my $fastqUuid        = '00000000-0000-0000-0000-000000000000'; # Actual directory with the fastq upload data files
     my $initialStatus    = 'zip_running';
 
@@ -1106,9 +1211,6 @@ sub test__doZip {
 
     # final upload value
     my $finalStatus = 'zip_completed';
-
-    my $obj = $CLASS->new( $OPT_HR );
-    $obj->{'_fastqUploadUuid'} = '00000000-0000-0000-0000-000000000000';
 
     my @dbEventsOk = ({
          'statement' => 'BEGIN WORK',
@@ -1179,32 +1281,208 @@ sub test__doZip {
         'results'  => [[]],
     });
 
-    $MOCK_DBH->{'mock_session'} =
-        DBD::Mock::Session->new( 'doXip', @dbEventsOk );
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = '00000000-0000-0000-0000-000000000000';
 
-#        $self->_insertUploadFileRecord( $dbh );
-#        $self->_updateUploadStatus( $dbh, "zip_completed");
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( 'doXip', @dbEventsOk );
 
-    is( 1, $obj->doZip( $MOCK_DBH ), "doZip completes ok" );
+        {
+            is( 1, $obj->doZip( $MOCK_DBH ), "doZip completes ok" );
+        }
+    }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doZip();
+        };
+        {
+          like( $@, qr/^doZip\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'failed_zip_param_doZip_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+
+    # Error propagation on error.
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        my $obj = $CLASS->new( $OPT_HR );
+
+        eval {
+             $obj->doZip( $MOCK_DBH );
+        };
+        {
+            like( $@, qr/^Error selecting lane to run on: /, "Error propogates out");
+            is( $obj->{'error'}, 'failed_zip_tagging_lane', "Errror tag propogates out");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+
 }
 
-#sub makeUploadDbEvents {
-#
-#    my $newStatus = shift;
-#    my $uploadId = shift;
-#
-#    my @dbEvents = ( {
-#            'statement' => 'BEGIN WORK',
-#            'results'  => [[]],
-#        }, {
-#            'statement'    => qr/UPDATE upload.*/msi,
-#            'bound_params' => [ $newStatus, $uploadId ],
-#            'results'  => [[ 'rows' ], []],
-#        }, {
-#           'statement' => 'COMMIT',
-#           'results'  => [[]],
-#        }
-#    );
-#
-#    return @dbEvents;
-#}
+sub test_run_zip {
+
+     plan ( tests => 4 );
+
+    # Bam upload record info.
+    my $laneId         = 12;
+    my $sampleId       = 19;
+    my $bamUploadId    = 221;
+    my $bamMetaDataDir = 't';      # The parent directory for the fake bam uplaod
+    my $bamUuid        = 'Data';   # The actual directory with the fake bam uplaod data files
+
+    # Fastq upload record info;
+    my $fastqUploadId    = 521;
+    my $fastqMetaDataDir = File::Temp->newdir();                   # Parent directory for the fastq upload
+    my $fastqUuid        = '00000000-0000-0000-0000-000000000000'; # Actual directory with the fastq upload data files
+    my $initialStatus    = 'zip_running';
+
+    # vw_files info for fastq files retrieved to go with the uploaded lane.
+    # Assuming the two sample pe fastq paths and their md5 sums were returned.
+    my $fastqWorkflowRunId = 613863;   # FinalizeCasava, although makes no difference here
+    my $processingId1      = 16;
+    my $processingId2      = 1616;
+
+    # zip file info
+    # Assuming the flowcell, lane, and barcode example used throughout
+    my $zipFileId = 266;
+
+    # final upload value
+    my $finalStatus = 'zip_completed';
+
+    my @dbEventsOk = ({
+         'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+    }, {
+        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'results'     => [
+            [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
+            [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
+        ],
+    }, {
+        'statement'   => qr/INSERT INTO upload.*/msi,
+        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
+        'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+        'bound_params' => [ $sampleId, $laneId],
+        'results'  => [
+            [ 'file_path', 'md5sum', 'workflow_run_id',
+              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+        ]
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/INSERT INTO file.*/msi,
+        # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
+        # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
+        'results'  => [[ 'file_id' ], [ $zipFileId ]],
+    }, {
+        'statement'    => qr/INSERT INTO processing_file.*/msi,
+        'bound_params' => [ $processingId1, $zipFileId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+        'statement'    => qr/INSERT INTO processing_file.*/msi,
+        'bound_params' => [ $processingId2, $zipFileId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/INSERT INTO upload_file.*/msi,
+        'bound_params' => [ $fastqUploadId, $zipFileId ],
+        'results'  => [ [ 'rows' ], [] ],
+    }, {
+        'statement' => 'COMMIT',
+        'results'  => [[]],
+    }, {
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/UPDATE upload.*/msi,
+        'bound_params' => [ $finalStatus, $fastqUploadId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'doZip', @dbEventsOk );
+    {
+        my $opts = { %$OPT_HR,
+            'runMode'            => 'ZIP',
+            '_fastqUploadUuid'   => '00000000-0000-0000-0000-000000000000',
+            'dataRoot'           => $fastqMetaDataDir,
+            'uploadFastqBaseDir' => $fastqMetaDataDir,
+        };
+        my $obj = $CLASS->new( $opts );
+        {
+            my $testName = "ZIP run mode smoke test";
+            my $got = $obj->run( "ZIP", $MOCK_DBH );
+            my $want = 1;
+            is( $got, $want, $testName);
+        }
+    }
+
+    # Error propagation.
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        $MOCK_DBH->{'mock_session'} = undef;  # = DBD::Mock::Session->new( 'doZip', @dbEventsOk );
+        my $opts = { %$OPT_HR,
+            'runMode'            => 'ZIP',
+            '_fastqUploadUuid'   => '00000000-0000-0000-0000-000000000000',
+            'dataRoot'           => $fastqMetaDataDir,
+            'uploadFastqBaseDir' => $fastqMetaDataDir,
+        };
+        my $obj = $CLASS->new( $opts );
+
+        eval {
+             $obj->run( 'ZIP', $MOCK_DBH );
+        };
+        {
+            like( $@, qr/^Error selecting lane to run on: /, "Error propogates out");
+            is( $obj->{'error'}, 'failed_zip_tagging_lane', "Errror tag propogates out");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+
+    # Error propagation.
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        $MOCK_DBH->{'mock_session'} = undef;  # = DBD::Mock::Session->new( 'doZip', @dbEventsOk );
+        my $opts = { %$OPT_HR,
+            'runMode'            => 'ZIP',
+            '_fastqUploadUuid'   => '00000000-0000-0000-0000-000000000000',
+            'dataRoot'           => $fastqMetaDataDir,
+            'uploadFastqBaseDir' => $fastqMetaDataDir,
+        };
+        my $obj = $CLASS->new( $opts );
+        $obj->{'_fastqUploadId'} = -42;
+
+        eval {
+            $obj->run( 'ZIP', $MOCK_DBH );
+        };
+        {
+            like( $@, qr/ALSO: Did not update UPLOAD: $obj->{'_fastqUploadId'}/, "Error if can't update upload.");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+}

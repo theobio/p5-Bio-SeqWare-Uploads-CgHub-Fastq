@@ -10,7 +10,8 @@ use Bio::SeqWare::Config; # Access SeqWare settings file as options
 use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
-use Test::More 'tests' => 1 + 6;   # Main testing module; run this many subtests
+use Test::Output;         # Tests what appears on stdout.
+use Test::More 'tests' => 1 + 8;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -53,7 +54,7 @@ my $MOCK_DBH = DBI->connect(
     'DBI:Mock:',
     '',
     '',
-    { 'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1 },
+    { 'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1, 'ShowErrorStatement' => 1 },
 );
 
 #
@@ -76,7 +77,347 @@ subtest( 'getUuid()'         => \&test_getUuid         );
 subtest( 'getAll()'            => \&testGetAll );
 subtest( 'run()'               => \&testRun );
 
+# Internal methods
+subtest( '_changeUploadRunStage()' => \&test__changeUploadRunStage );
+subtest( '_updateUploadStatus()'   => \&test__updateUploadStatus);
+
 $MOCK_DBH->disconnect();
+
+sub test__changeUploadRunStage {
+    plan( tests => 25 );
+
+    my $oldStatus = "parent_stage_completed";
+    my $newStatus = "child_stage_running";
+    my $uploadId  = -21;
+    my $sampleId  = -19;
+    my $metaDataDir = 't';
+    my $uuid      = 'Data';
+    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
+
+    my $obj = $CLASS->new( $OPT_HR );
+    my $fakeUploadHR = {
+        'upload_id'         => $uploadId,
+        'sample_id'         => $sampleId,
+        'cghub_analysis_id' => $uuid,
+        'metadata_dir'      => $metaDataDir,
+        'status'            => $newStatus,
+    };
+
+    my @dbSession = ({
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/SELECT \*/msi,
+        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+        'results'  => [
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+            [ $uploadId,   $oldStatus, $metaDataDir,   $uuid,               $sampleId  ],
+        ]
+    }, {
+        'statement'    => qr/UPDATE upload/msi,
+        'bound_params' => [ $newStatus,  $uploadId ],
+        'results'  => [[ 'rows' ], []]
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "ChangeSubmitUploadTest", @dbSession );
+        is_deeply( $fakeUploadHR, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
+    }
+
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "missing dbh parameter", @dbSession );
+       eval {
+           $obj->_changeUploadRunStage( undef, $oldStatus, $newStatus);
+       };
+       like($@, qr/^_changeUploadRunStage\(\) missing \$dbh parameter\./, "Bad param 1 - dbh");
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "missing oldStatus parameter", @dbSession );
+       eval {
+           $obj->_changeUploadRunStage( $MOCK_DBH, undef, $newStatus);
+       };
+       like($@, qr/^_changeUploadRunStage\(\) missing \$fromStatus parameter\./, "Bad param 2 - $oldStatus");
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "missing newStatus parameter", @dbSession );
+       eval {
+           $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, undef);
+       };
+       like($@, qr/^_changeUploadRunStage\(\) missing \$toStatus parameter\./, "Bad param 3 - $newStatus");
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose not", @dbSession );
+        stdout_unlike {
+            $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
+        } qr/SQL to find a lane/, 'No 1st messages if not verbose';
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose not 2", @dbSession );
+        stdout_unlike {
+             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
+        } qr/SQL to set to state/, 'No 2nd messages if not verbose';
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose not 3", @dbSession );
+        stdout_unlike {
+             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
+        } qr/\; UPLOAD_BASE_DIR/, 'No 3rd messages if not verbose';
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose", @dbSession );
+        $obj->{'verbose'} = 1;
+        my $expectRE = qr/Looking for upload record with status "parent_stage_completed"\./;
+        stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
+                     $expectRE, "Verbose info - looking for upload record message.";
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose", @dbSession );
+        $obj->{'verbose'} = 1;
+        my $expectRE = qr/Found upload record with status "parent_stage_completed" - sample id = -19 upload id = -21\./;
+        stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
+                     $expectRE, "Verbose info - found upload record message." ;
+    }
+    {
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "verbose", @dbSession );
+        $obj->{'verbose'} = 1;
+        my $expectRE = qr/Changing status of upload record \(id = -21\) from "parent_stage_completed" to "child_stage_running"\./;
+        stdout_like { $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )}
+                     $expectRE, "Verbose info - updated upload record message." ;
+    }
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+
+        my @dbSession = ({
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/SELECT \*/msi,
+            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'results'  => [[]]
+        }, {
+           'statement' => 'COMMIT',
+           'results'   => [[]],
+        });
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( "select Nothing", @dbSession );
+
+        is( undef, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select nothing upload appeard to work");
+    }
+    {
+        my @dbSession = ({
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/SELECT \*/msi,
+            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'results'  => [[ 'upload_id' ], []]
+        }, {
+           'statement' => 'ROLLBACK',
+            'results'  => [[]],
+        });
+        {
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} =
+                DBD::Mock::Session->new( "Missing uploadId result", @dbSession );
+            eval {
+               $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus);
+            };
+            like($@, qr/Error changing upload status from $oldStatus to $newStatus/, "Bad uploadId general" );
+            like($@, qr/Failed to retrieve upload data\./, "Bad uploadId specific" );
+            is( $obj->{'error'}, "status_query_" . $oldStatus . "_to_" . $newStatus , "error for bad uploadId" );
+        }
+    }
+    {
+        my @dbSession = ({
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/SELECT \*/msi,
+            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'results'  => [
+                [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+                [ $uploadId,   $oldStatus, $metaDataDir,   $uuid,               $sampleId  ],
+            ]
+        }, {
+            'statement'    => qr/UPDATE upload/msi,
+            'bound_params' => [ $newStatus,  $uploadId ],
+            'results'  => [[]]
+        }, {
+           'statement' => 'ROLLBACK',
+            'results'  => [[]],
+        });
+        {
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} =
+                DBD::Mock::Session->new( "Missing update result", @dbSession );
+            eval {
+               $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus);
+            };
+            like($@, qr/Failed to update upload status\./, "Bad update, specific" );
+            like($@, qr/Error changing upload status from $oldStatus to $newStatus/, "Bad update general" );
+            is( $obj->{'error'}, "status_update_" . $oldStatus . "_to_" . $newStatus , "error for bad uploadId" );
+        }
+    }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_changeUploadRunStage();
+        };
+        {
+          like( $@, qr/^_changeUploadRunStage\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__changeUploadRunStage_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Bad param: $fromStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_changeUploadRunStage( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^_changeUploadRunStage\(\) missing \$fromStatus parameter\./, "Error if no fromStatus param");
+          is( $obj->{'error'}, 'param__changeUploadRunStage_fromStatus', "Errror tag if no fromStatus param");
+        }
+    }
+
+    # Bad param: $toStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus );
+        };
+        {
+          like( $@, qr/^_changeUploadRunStage\(\) missing \$toStatus parameter\./, "Error if no toStatus param");
+          is( $obj->{'error'}, 'param__changeUploadRunStage_toStatus', "Errror tag if no toStatus param");
+        }
+    }
+
+    # Error propagation
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus );
+        };
+        {
+          like( $@, qr/^Error changing upload status from $oldStatus to $newStatus/, "Error propagaion");
+          is( $obj->{'error'}, 'status_change_' . $oldStatus. '_to_' . $newStatus, "Error tag propagaion");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+
+        # AutoCommit left as 0 after failure even though transaction never really started.
+        # Doesn't matter what is provided as session, or if no session set.
+        # Can't restore or reset though ahy Mock::DBI method that I can find. Just putting it
+        # back manually after this failure seems required.
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+}
+
+sub test__updateUploadStatus {
+
+    plan ( tests => 9 );
+
+    my $newStatus  = 'test_ignore_not-real-status';
+    my $uploadId= -21;
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_fastqUploadId'} = $uploadId;
+
+    my @dbSession = ({
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/UPDATE upload.*/msi,
+        'bound_params' => [ $newStatus, $uploadId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    {
+        $MOCK_DBH->{mock_clear_history} = 1;
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        $MOCK_DBH->{'mock_session'}->reset();
+        {
+            is( 1, $obj->_updateUploadStatus( $MOCK_DBH, $uploadId, $newStatus ), "Updated upload status." );
+        }
+    }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateUploadStatus();
+        };
+        {
+          like( $@, qr/^_updateUploadStatus\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__updateUploadStatus_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Bad param: $uploadId
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateUploadStatus( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^_updateUploadStatus\(\) missing \$uploadId parameter\./, "Error if no uploadId param");
+          is( $obj->{'error'}, 'param__updateUploadStatus_uploadId', "Errror tag if no uploadId param");
+        }
+    }
+
+    # Bad param: $newStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateUploadStatus( $MOCK_DBH, $uploadId );
+        };
+        {
+          like( $@, qr/^_updateUploadStatus\(\) missing \$newStatus parameter\./, "Error if no newStatus param");
+          is( $obj->{'error'}, 'param__updateUploadStatus_newStatus', "Errror tag if no newStatus param");
+        }
+    }
+
+    # Error propagation
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateUploadStatus( $MOCK_DBH, $uploadId, $newStatus );
+        };
+        {
+          like( $@, qr/^Failed to update status of upload record upload_id=$uploadId to $newStatus/, "Error propagaion");
+          is( $obj->{'error'}, 'update_upload', "Error tag propagaion");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+
+        # AutoCommit left as 0 after failure even though transaction never really started.
+        # Doesn't matter what is provided as session, or if no session set.
+        # Can't restore or reset though ahy Mock::DBI method that I can find. Just putting it
+        # back manually after this failure seems required.
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+
+}
+
 
 sub testNew {
     plan( tests => 2 );

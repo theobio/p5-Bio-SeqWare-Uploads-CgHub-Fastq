@@ -65,12 +65,13 @@ subtest( '_submitFastq()'   => \&test__submitFastq   );
 subtest( 'doSubmitFastq()'  => \&test_doSubmitFastq  );
 
 sub test_doSubmitFastq {
-     plan( tests => 1 );
+     plan( tests => 5 );
 
     my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
-    my $oldStatus = "submit_meta_completed";
-    my $newStatus = "submit_fastq_running";
-    my $finalStatus = "submit_fastq_completed";
+    my $oldStatus = "submit-meta_completed";
+    my $newStatus = "submit-fastq_running";
+    my $finalStatus = "submit-fastq_completed";
+    my $sampleId = -21;
 
     my $uploadId       = 7851;
     my $uploadUuid     = "notReallyTheFastqUploadUuid";
@@ -96,8 +97,8 @@ sub test_doSubmitFastq {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
         'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid         ],
+            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId ],
         ]
     }, {
         'statement'    => qr/UPDATE upload/msi,
@@ -131,6 +132,31 @@ sub test_doSubmitFastq {
 	    }
         $mock_readpipe->{'mock'} = 0;
     }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doSubmitFastq();
+        };
+        {
+          like( $@, qr/^doSubmitFastq\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'failed_submit-fastq_param_doSubmitFastq_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Error propagation.
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doSubmitFastq( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Error changing upload status from submit-meta_completed to submit-fastq_running/, "Error propogates out");
+          is( $obj->{'error'}, 'failed_submit-fastq_status_change_submit-meta_completed_to_submit-fastq_running', "Errror tag propogates out");
+        }
+    }
+
 }
 
 sub test__submitFastq {
