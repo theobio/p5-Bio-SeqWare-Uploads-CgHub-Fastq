@@ -291,8 +291,6 @@ sub run {
         }
     }
 
-    $self->sayVerbose("Starting run for $runMode.");
-
     # Allow UUID to be provided, basically for testing as this is a random value.
     if (! $self->{'_fastqUploadUuid'}) {
         $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
@@ -301,7 +299,10 @@ sub run {
          $self->{'error'} = 'bad_uuid';
          croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
     }
+    $self->sayVerbose("Starting run for $runMode.");
     $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
+
+
 
     # Run as selected.
     eval {
@@ -503,7 +504,9 @@ sub doMeta {
         my $uploadHR = $self->_changeUploadRunStage( $dbh, 'zip_completed', 'meta_running' );
         if ($uploadHR)  {
             my $dataHR = $self->_getTemplateData( $dbh, $uploadHR->{'upload_id'} );
-            my $outFile = $self->_makeFileFromTemplate( $dataHR, "analysis.xml", "analysis_fastq.xml.template");
+            $self->_makeFileFromTemplate( $dataHR, "analysis.xml",     "analysis_fastq.xml.template" );
+            $self->_makeFileFromTemplate( $dataHR, "run.xml",               "run_fastq.xml.template" );
+            $self->_makeFileFromTemplate( $dataHR, "experiment.xml", "experiment_fastq.xml.template" );
             $self->_updateUploadStatus( $dbh, $uploadHR->{'upload_id'}, "meta_completed");
         }
     };
@@ -761,6 +764,7 @@ sub _findNewLaneToZip {
           AND uf.upload_id      = u.upload_id
           AND u.target          = ?
           AND u.external_status = ?
+          AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
           AND vwf.sample_id NOT IN (
               SELECT u.sample_id
               FROM upload AS u
@@ -1713,6 +1717,7 @@ sub _changeUploadRunStage {
 
             $dbh->commit();
 
+            $self->{'_fastqUploadId'} = $upload{'upload_id'};
             $upload{'status'} = $toStatus; # Correct local copy to match db.
         }
     };
@@ -1751,13 +1756,13 @@ sub _getTemplateData {
     my $uploadId = shift;
 
     unless ($dbh) {
-        $self->{'error'} = 'param_getTemplateData_dbh';
+        $self->{'error'} = 'param__getTemplateData_dbh';
         croak ("_getTemplateData() missing \$dbh parameter.");
     }
 
-    if (! $uploadId) {
-        $self->{'error'} = 'bad_get_data_param';
-        croak "ERROR: Missing \$uploadId parameter for _getTemplateData\n";
+    unless ($uploadId) {
+        $self->{'error'} = 'param__getTemplateData_uploadId';
+        croak ("_getTemplateData() missing \$uploadId parameter.");
     }
 
     my $selectAllSQL =
@@ -1768,12 +1773,21 @@ sub _getTemplateData {
                vf.md5sum            as file_md5sum,
                vf.file_path,
                u.metadata_dir       as fastq_upload_basedir,
-               u.cghub_analysis_id  as fastq_upload_uuid
-        FROM upload u, upload_file uf, vw_files vf, lane l
+               u.cghub_analysis_id  as fastq_upload_uuid,
+               e.sw_accession       as experiment_accession,
+               s.sw_accession       as sample_accession,
+               e.description        as experiment_description,
+               e.experiment_id,
+               p.instrument_model,
+               u.sample_id
+        FROM upload u, upload_file uf, vw_files vf, lane l, experiment e, sample s, platform p
         WHERE u.upload_id = ?
           AND u.upload_id = uf.upload_id
           AND uf.file_id = vf.file_id
-          AND vf.lane_id = l.lane_id";
+          AND vf.lane_id = l.lane_id
+          AND s.sample_id = u.sample_id
+          AND e.experiment_id = s.experiment_id
+          AND e.platform_id = p.platform_id";
 
     #$self->sayVerbose( "SQL to get template data:\n$selectAllSQL" );
 
@@ -1791,22 +1805,41 @@ sub _getTemplateData {
             . $fileName;
 
         $data = {
-            'program_version'    => $VERSION,
-            'sample_tcga_uuid'   => $rowHR->{'sample_tcga_uuid'},
-            'lane_accession'     => $rowHR->{'lane_accession'},
-            'file_md5sum'        => $rowHR->{'file_md5sum'},
-            'file_accession'     => $rowHR->{'file_accession'},
-            'upload_file_name'   => $localFileLink,
-            'uploadIdAlias'      => "upload $uploadId",
-            'file_path_base'     => 
+            'program_version'      => $VERSION,
+            'sample_tcga_uuid'     => $rowHR->{'sample_tcga_uuid'},
+            'lane_accession'       => $rowHR->{'lane_accession'},
+            'file_md5sum'          => $rowHR->{'file_md5sum'},
+            'file_accession'       => $rowHR->{'file_accession'},
+            'upload_file_name'     => $localFileLink,
+            'uploadIdAlias'        => "upload $uploadId",
+            'experiment_accession' => $rowHR->{'experiment_accession'},
+            'sample_accession'     => $rowHR->{'sample_accession'},
+            'experiment_description' => $rowHR->{'experiment_description'},
+            'instrument_model' => $rowHR->{'instrument_model'},
+            'read_ends'        => 
+                $self->_getTemplateDataReadEnds(
+                    $dbh, $rowHR->{'experiment_id'} ),
+            'base_coord'   => -1  +
+                $self->_getTemplateDataReadLength(
+                    $dbh, $rowHR->{'sample_id'} ),
+            'file_path_base'  => 
                 (Bio::SeqWare::Uploads::CgHub::Fastq->getFileBaseName(
-                    $rowHR->{'file_path'}
-                ))[0],
-            'analysis_date'      =>
+                    $rowHR->{'file_path'} ))[0],
+            'analysis_date'   =>
                 Bio::SeqWare::Uploads::CgHub::Fastq->reformatTimeStamp(
-                    $rowHR->{'file_timestamp'}
-                ),
+                    $rowHR->{'file_timestamp'} ),
         };
+        if ($data->{'read_ends'} == 1) {
+            $data->{'library_layout'} = 'SINGLE';
+        }
+        elsif ($data->{'read_ends'} == 2) {
+            $data->{'library_layout'} = 'PAIRED';
+        }
+        else {
+            $self->{'error'} = 'bad_read_ends';
+            croak("XML only defined for read_ends 1 or 2, not $data->{'read_ends'}\n");
+        }
+ 
         if ($self->{'verbose'}) {
             my $message = "Template Data:\n";
             for my $key (sort keys %$data) {
@@ -1844,6 +1877,166 @@ sub _getTemplateData {
     return $data;
 }
 
+=head2 _getTemplateDataReadEnds
+
+    $ends = $self->_getTemplateDataReadEnds( $dbh, $eperiment.sw_accession );
+
+Returns 1 if single ended, 2 if paired-ended. Based on the number
+of application reads in the associated experiment_spot_design_read_spec.
+Dies if any other number found, or if any problem with db access.
+
+=cut
+
+sub _getTemplateDataReadEnds {
+
+    my $self         = shift;
+    my $dbh          = shift;
+    my $experimentId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = 'param__getTemplateDataReadEnds_dbh';
+        croak ("_getTemplateDataReadEnds() missing \$dbh parameter.");
+    }
+
+    unless ($experimentId) {
+        $self->{'error'} = 'param__getTemplateDataReadEnds_experimentId';
+        croak ("_getTemplateDataReadEnds() missing \$experimentId parameter.");
+    }
+
+    my $readCountSQL = 
+        "SELECT count(*) as read_ends
+         FROM experiment_spot_design_read_spec AS rs,
+                        experiment_spot_design AS d,
+                                    experiment AS e
+         WHERE  e.experiment_id                 = ?
+           AND  e.experiment_spot_design_id     = d.experiment_spot_design_id
+           AND rs.experiment_spot_design_id     = d.experiment_spot_design_id
+           AND rs_class                         =  'Application Read'
+           AND rs.read_type                    !=  'BarCode'";
+
+    my $readEnds;
+    eval {
+        my $readCoundSTH = $dbh->prepare( $readCountSQL );
+        $readCoundSTH->execute( $experimentId );
+        my $rowHR = $readCoundSTH->fetchrow_hashref();
+        $readEnds = $rowHR->{'read_ends'};
+        if (! defined $readEnds) {
+             croak "Nothing retrieved from database.\n";
+        }
+        unless ($readEnds == 1 || $readEnds == 2) {
+             croak "Found $readEnds read ends, expected 1 or 2.\n";
+        }
+        $readCoundSTH->finish();
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = 'db_query_ends';
+        croak ( "Can't retrieve count of ends: $@" );
+    }
+
+    return $readEnds;
+}
+
+=head2 _getTemplateDataReadLength
+
+   $baseCountPerRead = _getTemplateDataReadLength( $dbh, sampleId );
+
+Examines first 1000 lines of the BAM file associated with this fastq looking
+for the max read length. Finding the BAM file is easier than getting back to
+the fastq.
+
+=cut
+
+sub _getTemplateDataReadLength {
+
+    my $self     = shift;
+    my $dbh      = shift;
+    my $sampleId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = 'param__getTemplateDataReadLength_dbh';
+        croak ("_getTemplateDataReadLength() missing \$dbh parameter.");
+    }
+
+    unless ($sampleId) {
+        $self->{'error'} = 'param__getTemplateDataReadLength_sampleId';
+        croak ("_getTemplateDataReadLength() missing \$sampleId parameter.");
+    }
+
+    my $SAMTOOLS_EXEC = '/datastore/tier1data/nextgenseq/seqware-analysis/software/samtools/samtools';
+    my $MIN_READ_LENGTH = 17;
+
+    my $bamFileSQL =
+        "SELECT f.file_path
+         FROM upload AS u, upload_file AS uf, file AS f
+         WHERE u.target          = 'CGHUB'
+           AND u.external_status = 'live'
+           AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
+           AND u.sample_id       = ?";
+
+    my $bamFile;
+    eval {
+        my $bamFileSTH = $dbh->prepare( $bamFileSQL );
+        $bamFileSTH->execute( $sampleId );
+        my $rowHR = $bamFileSTH->fetchrow_hashref();
+        $bamFile = $rowHR->{'file_path'};
+        if (! defined $bamFile) {
+             croak "Nothing retrieved from database.\n";
+        }
+        unless (-f $bamFile) {
+             croak "No such File: \"$bamFile\"\n";
+        }
+        $bamFileSTH->finish();
+    };
+    if ($@) {
+        my $error = $@;
+        $self->{'error'} = 'db_get_bam';
+        croak ( "Can't retrieve bam file path for read end counting: $error" );
+    }
+
+    my $readLength = 0;
+
+    eval {
+        my $command = "$SAMTOOLS_EXEC view $bamFile | head -1000 | cut -f 10";
+        $self->sayVerbose( "READ LENGTH COMMAND: \"$command\"" );
+        my $errorMessage = "";
+        my $readStr = qx/$command/;
+
+        if ($?) {
+            $self->{'error'} = "samtools-exec-error-$?";
+            die ("Error getting read length. exit=$?; $!\n"
+                . "Original command was:\n$command\n" );
+        }
+        if (! $readStr) {
+            $self->{'error'} = "samtools-exec-no-output";
+            die( "Validation error: neither error nor result generated. Strange.\n"
+                        . "Original command was:\n$command\n" );
+        }
+
+        my @reads = split (/\n/, $readStr);
+        foreach my $read (@reads) {
+            my $length = length($read);
+            if ($length > $readLength) {
+                $readLength = $length;
+            }
+        }
+
+        if ( $readLength < $MIN_READ_LENGTH ) {
+            $self->{'error'} = "low-read-length";
+            die( "Bad read length: = $readLength.\n" );
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'bam_read_length';
+        }
+        croak ( "Can't determine bam max read length: $error" );
+    }
+
+    return $readLength;
+}
+
 =head2 _makeFileFromTemplate
 
   $obj->_makeFileFromTemplate( $dataHR, $outFile );
@@ -1872,21 +2065,29 @@ sub _makeFileFromTemplate {
     my $outFile = shift;
     my $templateFile = shift;
 
-    if (! $templateFile) {
+    unless ($dataHR) {
+        $self->{'error'} = 'param__makeFileFromTemplate_dataHR';
+        croak ("_makeFileFromTemplate() missing \$dataHR parameter.");
+    }
+
+    unless ($outFile) {
+        $self->{'error'} = 'param__makeFileFromTemplate_outFile';
+        croak ("_makeFileFromTemplate() missing \$outFile parameter.");
+    }
+
+    unless ($templateFile) {
         $templateFile = $outFile . ".template";
     }
 
+    # Ensure have absolute paths for outFile and templateFile
     my $outAbsFilePath;
     my $templateAbsFilePath;
-
-
     if ( File::Spec->file_name_is_absolute( $outFile )) {
         $outAbsFilePath = $outFile
     }
     else {
         $outAbsFilePath = File::Spec->catfile( $self->{'_fastqUploadDir'}, $outFile );
     }
-
     if ( File::Spec->file_name_is_absolute( $templateFile )) {
          $templateAbsFilePath = $templateFile
     }
@@ -1902,6 +2103,8 @@ sub _makeFileFromTemplate {
             ."OUTFILE: $outAbsFilePath\n"
             ."DATA: \n" . Dumper($dataHR)
     );
+
+    # Stamp output file from merged dataHR and template file
     eval {
         my $templateManagerConfigHR = {
             'ABSOLUTE' => 1,
@@ -1922,12 +2125,13 @@ sub _makeFileFromTemplate {
         }
         croak ("Failed creating a file $outAbsFilePath from template $templateAbsFilePath: $error");
     }
+
     return $outAbsFilePath;
 }
 
 =head2 _validateMeta
 
-    self->_validateMeta();
+    self->_validateMeta( $uploadHR );
 
 =cut
 
@@ -1992,7 +2196,7 @@ sub _validateMeta {
 
 =head2 _submitMeta
 
-   $obj->_submitMeta();
+   $obj->_submitMeta( $uploadHR );
 
 =cut
 
@@ -2071,9 +2275,9 @@ sub _submitMeta {
 
 }
 
-=head2 _submitMeta
+=head2 _submitFastq
 
-   $obj->_submitMeta();
+   $obj->_submitFastq( $uploadHR );
 
 =cut
 

@@ -1141,7 +1141,6 @@ sub test__insertFile {
         }
     }
 
-    # Error propagation
 }
 
 sub test__insertUploadFileRecord {

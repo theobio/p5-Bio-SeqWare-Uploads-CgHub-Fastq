@@ -19,11 +19,11 @@
 				</SEQ_LABELS>
 				<PROCESSING>
 					<PIPELINE>
-						<PIPE_SECTION section_name="SPACE_HOLDER">
+						<PIPE_SECTION section_name="upload-cghub-fastq">
 							<STEP_INDEX>0</STEP_INDEX>
 							<PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
-							<PROGRAM>upload-cghub-fastq</PROGRAM>
-							<VERSION>0.0.1</VERSION>
+							<PROGRAM>upload-cghub-fastq.pl</PROGRAM>
+							<VERSION>0.000014</VERSION>
 							<NOTES>zip-fastq-external; UNCID:2149605</NOTES>
 						</PIPE_SECTION>
 					</PIPELINE>

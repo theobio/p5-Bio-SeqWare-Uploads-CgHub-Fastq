@@ -2,7 +2,7 @@
 <RUN_SET
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
   xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.run.xsd?view=co">
-    <RUN center_name="UNC-LCCC" alias="UNCID:2090626">
-        <EXPERIMENT_REF refcenter="UNC-LCCC" refname="UNCID:975937-2090625"/>
+    <RUN center_name="UNC-LCCC" alias="UNCID:[% lane_accession %]">
+        <EXPERIMENT_REF refcenter="UNC-LCCC" refname="UNCID:[% experiment_accession %]-[% sample_accession %]"/>
     </RUN>
 </RUN_SET>

@@ -16,7 +16,7 @@
 				</RUN_LABELS>
 				<SEQ_LABELS>
 					<SEQUENCE seq_label="NA" data_block_name="NA" accession="NA"/>
-                </SEQ_LABELS>
+				</SEQ_LABELS>
 				<PROCESSING>
 					<PIPELINE>
 						<PIPE_SECTION section_name="upload-cghub-fastq">
@@ -24,7 +24,7 @@
 							<PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
 							<PROGRAM>upload-cghub-fastq.pl</PROGRAM>
 							<VERSION>[% program_version %]</VERSION>
-							<NOTES>zip-fastq-external; [% file_accession %]</NOTES>
+							<NOTES>zip-fastq-external; UNCID:[% file_accession %]</NOTES>
 						</PIPE_SECTION>
 					</PIPELINE>
 					<DIRECTIVES>

@@ -85,7 +85,7 @@ subtest( '_updateUploadStatus()'   => \&test__updateUploadStatus);
 $MOCK_DBH->disconnect();
 
 sub test__changeUploadRunStage {
-    plan( tests => 25 );
+    plan( tests => 23 );
 
     my $oldStatus = "parent_stage_completed";
     my $newStatus = "child_stage_running";
@@ -127,32 +127,9 @@ sub test__changeUploadRunStage {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "ChangeSubmitUploadTest", @dbSession );
         is_deeply( $fakeUploadHR, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
+        is( $obj->{'_fastqUploadId'}, $uploadId, "Sets upload id");
     }
 
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing dbh parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( undef, $oldStatus, $newStatus);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$dbh parameter\./, "Bad param 1 - dbh");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing oldStatus parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( $MOCK_DBH, undef, $newStatus);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$fromStatus parameter\./, "Bad param 2 - $oldStatus");
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "missing newStatus parameter", @dbSession );
-       eval {
-           $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, undef);
-       };
-       like($@, qr/^_changeUploadRunStage\(\) missing \$toStatus parameter\./, "Bad param 3 - $newStatus");
-    }
     {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "verbose not", @dbSession );

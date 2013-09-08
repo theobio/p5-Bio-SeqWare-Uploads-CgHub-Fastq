@@ -2,40 +2,43 @@
 <EXPERIMENT_SET
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
   xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.experiment.xsd?view=co">
-<EXPERIMENT center_name="UNC-LCCC" alias="UNCID:975937-2090625">
+[% FOREACH experiment IN experiment_set -%]
+<EXPERIMENT center_name="UNC-LCCC" alias="[% experiment.experiment_ref %]">
     <STUDY_REF accession="SRP000677" refcenter="NHGRI" refname="phs000178"/>
     <DESIGN>
-        <DESIGN_DESCRIPTION>TCGA RNA-Seq Paired-End Experiment</DESIGN_DESCRIPTION>
-        <SAMPLE_DESCRIPTOR refcenter="TCGA" refname="66770b06-2cd6-4773-b8e8-5b38faa4f5a4"/>
+        <DESIGN_DESCRIPTION>[% experiment.description %]</DESIGN_DESCRIPTION>
+        <SAMPLE_DESCRIPTOR refcenter="TCGA" refname="[% experiment.sample_uuid %]"/>
         <LIBRARY_DESCRIPTOR>
-            <LIBRARY_NAME>Illumina TruSeq for 66770b06-2cd6-4773-b8e8-5b38faa4f5a4</LIBRARY_NAME>
+            <LIBRARY_NAME>Illumina TruSeq for [% experiment.sample_uuid %]</LIBRARY_NAME>
             <LIBRARY_STRATEGY>RNA-Seq</LIBRARY_STRATEGY>
             <LIBRARY_SOURCE>GENOMIC</LIBRARY_SOURCE>
             <LIBRARY_SELECTION>RANDOM</LIBRARY_SELECTION>
             <LIBRARY_LAYOUT>
-                <PAIRED/>
+                <[% experiment.library_layout %]/>
             </LIBRARY_LAYOUT>
         </LIBRARY_DESCRIPTOR>
         <SPOT_DESCRIPTOR>
             <SPOT_DECODE_SPEC>
-				<READ_SPEC>
- 					<READ_INDEX>0</READ_INDEX>
-					<READ_CLASS>Application Read</READ_CLASS>
-					<READ_TYPE>Forward</READ_TYPE>
-					<BASE_COORD>1</BASE_COORD>
-				</READ_SPEC>
-				<READ_SPEC>
-					<READ_INDEX>1</READ_INDEX>
-					<READ_CLASS>Application Read</READ_CLASS>
-					<READ_TYPE>Reverse</READ_TYPE>
-					<BASE_COORD>16</BASE_COORD>
-				</READ_SPEC>
+                <READ_SPEC>
+                    <READ_INDEX>0</READ_INDEX>
+                    <READ_CLASS>Application Read</READ_CLASS>
+                    <READ_TYPE>Forward</READ_TYPE>
+                    <BASE_COORD>1</BASE_COORD>
+                </READ_SPEC>
+
+                <READ_SPEC>
+                    <READ_INDEX>1</READ_INDEX>
+                    <READ_CLASS>Application Read</READ_CLASS>
+                    <READ_TYPE>Reverse</READ_TYPE>
+                    <BASE_COORD>[% experiment.read2_base_coord %]</BASE_COORD>
+                </READ_SPEC>
+
             </SPOT_DECODE_SPEC>
         </SPOT_DESCRIPTOR>
     </DESIGN>
     <PLATFORM>
         <ILLUMINA>
-            <INSTRUMENT_MODEL>Illumina HiSeq 2000</INSTRUMENT_MODEL>
+            <INSTRUMENT_MODEL>[% experiment.instrument_model %]</INSTRUMENT_MODEL>
         </ILLUMINA>
     </PLATFORM>
     <PROCESSING>
@@ -64,4 +67,5 @@
         <DIRECTIVES></DIRECTIVES>
     </PROCESSING>
 </EXPERIMENT>
+[% END -%]
 </EXPERIMENT_SET>
