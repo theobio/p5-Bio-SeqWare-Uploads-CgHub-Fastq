@@ -11,7 +11,7 @@ use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
 use Test::Output;         # Tests what appears on stdout.
-use Test::More 'tests' => 1 + 9;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 10;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -72,11 +72,12 @@ subtest( 'new()'             => \&testNew              );
 subtest( 'new(BAD)'          => \&testNewBad           );
 subtest( 'getFileBaseName()' => \&test_getFileBaseName );
 subtest( 'getUuid()'         => \&test_getUuid         );
+subtest( 'getTimeStamp()'    => \&testgetTimeStamp );
 
 # Object methods
-subtest( 'getAll()'            => \&testGetAll );
-subtest( 'run()'               => \&testRun );
-subtest( 'sayVerbose()'   => \&test_sayVerbose);
+subtest( 'getAll()'       => \&testGetAll       );
+subtest( 'run()'          => \&testRun          );
+subtest( 'sayVerbose()'   => \&test_sayVerbose  );
 
 # Internal methods
 subtest( '_changeUploadRunStage()' => \&test__changeUploadRunStage );
@@ -520,6 +521,17 @@ sub test_getUuid {
     }
 }
 
+sub testgetTimeStamp {
+
+    plan( tests => 1 );
+
+    {
+        my $want = "2013-09-08_15:16:17";
+        my $got = $CLASS->getTimeStamp( 1378667777 );
+        is( $got, $want, "timestamp from unix time." );
+    }
+
+}
 sub test_sayVerbose {
 	plan( tests => 1 );
     {

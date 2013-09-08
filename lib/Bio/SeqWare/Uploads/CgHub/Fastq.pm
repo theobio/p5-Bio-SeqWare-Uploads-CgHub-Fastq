@@ -642,6 +642,31 @@ sub getAll() {
     return $copy;
 }
 
+
+=head2 getTimeStamp()
+
+    Bio::SeqWare::Uploads::CgHub::Fastq->getTimeStamp().
+    Bio::SeqWare::Uploads::CgHub::Fastq->getTimeStamp( $unixTime ).
+
+Returns a timestamp formated like YYYY-MM-DD_HH:MM:SS, zero padded, 24 hour
+time. If a parameter is passed, it is assumed to be a unix epoch time (integer
+or float seconds since Unix 0). If no parameter is passed, the current time will
+be queried. Time is parsed through perl's localtime().
+
+=cut
+
+sub getTimeStamp {
+    my $class = shift;
+    my $time = shift;
+    if (!$time) {
+       $time = time();
+    }
+    my ($sec, $min, $hr, $day, $mon, $yr) = localtime($time);
+    return sprintf ( "%04d-%02d-%02d_%02d:%02d:%02d",
+                     $yr+1900, $mon+1, $day, $hr, $min, $sec);
+}
+
+
 =head1 INTERNAL METHODS
 
 NOTE: These methods are for I<internal use only>. They are documented here
@@ -2194,6 +2219,7 @@ sub _validateMeta {
     return 1;
 }
 
+
 =head2 _submitMeta
 
    $obj->_submitMeta( $uploadHR );
@@ -2382,7 +2408,7 @@ sub sayVerbose {
     if (! defined $message) {
         $message = "__NULL__";
     }
-    my $timestamp = getTimeStamp();
+    my $timestamp = Bio::SeqWare::Uploads::CgHub::Fastq->getTimeStamp();
     my $uuid_tag = $self->{'_fastqUploadUuid'};
     if ($uuid_tag && $uuid_tag =~ /([A-F0-9]{8})$/i) {
         $uuid_tag = $1;
@@ -2391,28 +2417,6 @@ sub sayVerbose {
         $uuid_tag = '12345678';
     }
     print( wrap("$uuid_tag: [INFO] $timestamp - ", "\t", "$message\n" ));
-}
-
-=head2 getTimeStamp()
-
-    $self->getTimeStamp().
-    $self->getTimeStamp( $unixTime ).
-
-Returns a timestamp formated like YYYY-MM-DD_HH:MM:SS, zero padded, 24 hour
-time. If a parameter is passed, it is assumed to be a unix epoch time (integer
-seconds since Unix 0). If no parameter is passed, the current time will be
-queried. Time is parsed through perl's localtime().
-
-=cut
-
-sub getTimeStamp {
-    my $time = shift;
-    if (!$time) {
-       $time = time();
-    }
-    my ($sec, $min, $hr, $day, $mon, $yr) = localtime($time);
-    return sprintf ( "%04d-%02d-%02d_%02d:%02d:%02d",
-                     $yr+1900, $mon+1, $day, $hr, $min, $sec);
 }
 
 =head1 AUTHOR
