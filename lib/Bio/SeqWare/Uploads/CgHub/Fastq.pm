@@ -724,6 +724,48 @@ sub _tagLaneToUpload {
 
 }
 
+=head2 _getSampleSelectionSql()
+
+    my $sql = $obj->_getSampleSelectionSql();
+    
+Examines the various sample filter parameters and generates the sql
+query that selects for a sample that meets all filter values. Parameters
+looked for in the $self hash-ref are sampleId, sampleTitle, sampleAccession,
+sampleAlias, sampleAlias, and sampleUuid, which are matched by equality to
+the associated database sample table field.
+
+=cut
+
+sub _getSampleSelectionSql {
+
+    my $self = shift;
+
+ 
+     my $selectSql=
+       "SELECT vwf.lane_id, u.sample_id, u.upload_id, u.metadata_dir, u.cghub_analysis_id
+        FROM vw_files AS vwf, upload_file AS uf, upload AS u, sample as s
+        WHERE vwf.file_id       = uf.file_id
+          AND uf.upload_id      = u.upload_id
+          AND u.sample_id       = s.sample_id
+          AND u.target          = 'CGHUB'
+          AND u.external_status = 'live'
+          AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
+          AND vwf.sample_id NOT IN (
+              SELECT u.sample_id
+              FROM upload AS u
+              WHERE u.target      = 'CGHUB_FASTQ'
+          )";
+ 
+    if ($self->{'sampleId'       }) { $selectSql .= " AND s.sample_id = ?";    }
+    if ($self->{'sampleAccession'}) { $selectSql .= " AND s.sw_accession = ?"; }
+    if ($self->{'sampleAlias'    }) { $selectSql .= " AND s.alias = ?";       }
+    if ($self->{'sampleUuid'     }) { $selectSql .= " AND s.tcga_uuid = ?";    }
+    if ($self->{'sampleTitle'    }) { $selectSql .= " AND s.title = ?";        }
+    if ($self->{'sampleType'     }) { $selectSql .= " AND s.type = ?";         }
+
+    $selectSql .= " order by vwf.lane_id DESC limit 1";
+}
+
 =head2 _findNewLaneToZip()
 
 Identifies a lane that needs its data uploaded to CgHub. To qualify for
@@ -751,6 +793,13 @@ Uses
 
     $self->{'verbose'} => echo SQL, set values
 
+    $self->{'sampleId'}        => select by sample.sample_id
+    $self->{'sampleAccession'} => select by sample.sw_accession
+    $self->{'sampleAlias'}     => select by sample.alias
+    $self->{'sampleUuid'}      => select by sample.tcga_uuid
+    $self->{'sampleTitle'}     => select by sample.title
+    $self->{'sampleType'}      => select by sample.type
+
 Sets
 
     '_laneId'           = vw_files.lane_id (joined with upload, upload_files)
@@ -777,34 +826,28 @@ sub _findNewLaneToZip {
         croak ("_findNewLaneToZip() missing \$dbh parameter.");
     }
 
-    # Setup SQL
-    my $sqlTargetForMapspliceUpload = 'CGHUB';
-    my $sqlExternalStatusForSuccesfulMapspliceUpload = 'live';
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
+    my $selectionSQL = $self->_getSampleSelectionSql();
+    $self->sayVerbose( "Selction sql:\n$selectionSQL");
 
-    my $selectionSQL =
-       "SELECT vwf.lane_id, u.sample_id, u.upload_id, u.metadata_dir, u.cghub_analysis_id
-        FROM vw_files AS vwf, upload_file AS uf, upload AS u
-        WHERE vwf.file_id       = uf.file_id
-          AND uf.upload_id      = u.upload_id
-          AND u.target          = ?
-          AND u.external_status = ?
-          AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
-          AND vwf.sample_id NOT IN (
-              SELECT u.sample_id
-              FROM upload AS u
-              WHERE u.target      = ?
-          ) order by vwf.lane_id DESC limit 1";
+    my @sqlParameters;
+    if ($self->{'sampleId'       }) { push @sqlParameters, $self->{'sampleId'       }; }
+    if ($self->{'sampleAccession'}) { push @sqlParameters, $self->{'sampleAccession'}; }
+    if ($self->{'sampleAlias'    }) { push @sqlParameters, $self->{'sampleAlias'    }; }
+    if ($self->{'sampleUuid'     }) { push @sqlParameters, $self->{'sampleUuid'     }; }
+    if ($self->{'sampleTitle'    }) { push @sqlParameters, $self->{'sampleTitle'    }; }
+    if ($self->{'sampleType'     }) { push @sqlParameters, $self->{'sampleType'     }; }
 
     # Execute SQL
     my $rowHR;
     eval {
         my $selectionSTH = $dbh->prepare( $selectionSQL );
-        $selectionSTH->execute(
-            $sqlTargetForMapspliceUpload,
-            $sqlExternalStatusForSuccesfulMapspliceUpload,
-            $sqlTargetForFastqUpload
-        );
+        if (@sqlParameters && scalar @sqlParameters > 0) {
+            $self->sayVerbose( "Select SQL parameters:\n" . Dumper( \@sqlParameters) );
+            $selectionSTH->execute(@sqlParameters);
+        }
+        else {
+            $selectionSTH->execute();
+        }
         $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
     };

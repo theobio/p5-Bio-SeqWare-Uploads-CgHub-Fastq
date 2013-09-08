@@ -219,6 +219,34 @@ I<Not implemented> Will allow rerunning by over-riding previously created.
 If set, causes sql queries and data values to print at each stage. Off by
 default.
 
+=item --sampleId INT
+
+Filter sample to upload by the database sample_id.
+
+=item --sample STRING, --sampleTitle STRING
+
+Filter sample to upload by the tcga descriptive id.
+
+=item --sampleAccession INT
+
+Filter sample to upload by the UNC database record accession.
+
+=item --sampleAlias STRING
+
+Filter sample to upload by the alternate "alias" name.
+
+=item --sampleType STRING, --tumorType STRING
+
+Filter sample to upload by the type group of the sample, e.g. "BRCA"
+
+=item --sampleUuid STRING
+
+Filter sample to upload by the tcga uuid.
+
+=item --uploadId INT
+
+Filter sample to upload by upload id.
+
 =back
 
 =cut
@@ -248,6 +276,23 @@ sub _processCommandLine {
         'dbPassword=s' => \$opt{'dbPassword'},
         'dbHost=s'     => \$opt{'dbHost'},
         'dbSchema=s'   => \$opt{'dbSchema'},
+
+        # Select for upload, default is to use none.
+        'sampleId=i'             => \$opt{'sampleId'},
+        'sampleTitle|sample=s'   => \$opt{'sampleTitle'},
+        'sampleAccession=i'      => \$opt{'sampleAccession'},
+        'sampleAlias=s'          => \$opt{'sampleAlias'},
+        'sampleType|tumorType=s' => \$opt{'sampleType'},
+        'sampleUuid=s'           => \$opt{'sampleUuid'},
+#        'uploadId=i'                => \$opt{'uploadId'},
+#        'uploadTarget=s'            => \$opt{'uploadTarget'},
+#        'uploadStatus=s'            => \$opt{'uploadStatus'},
+#        'uploadExternalStatus=s'    => \$opt{'uploadExternalStatus'},
+#        'uploadMetadataDir=s'       => \$opt{'uploadMetadataDir'},
+#        'uploadCgHubAnalysisUuid=s' => \$opt{'uploadCgHubAnalysisUuid'},
+#
+#        'fastq'  => \$opt{'fastq'},
+#        'v2'     => \$opt{'v2'},
 
         'uploadFastqBaseDir=s' => \$opt{'uploadFastqBaseDir'},
         'uploadBamBaseDir=s'   => \$opt{'uploadBamBaseDir'},

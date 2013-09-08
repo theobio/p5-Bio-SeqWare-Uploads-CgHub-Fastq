@@ -1,5 +1,14 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.015 2013-09-08 18:00:00
+ [MAJOR] - Generating run and experiment.xml from scratch
+ [ADD]   - Limit selection of samples to V2 only (by upload output dir).
+ [ADD]   - Filter sample selection by sample info.
+ [API]   - Made getTimeStamp an oo (class) function.
+ [FIX]   - Corrected id storage that prevented error status updates to db.
+ [FIX]   - Corrected test of xml content that failed true
+ [FIX]   - Corrected minor info in analysis.xml.
+
 0.000.014 2013-08-31 22:45:00
  [FIX]   - Add test for, and this time actually fix uuid-tag in logging.
  
@@ -25,7 +34,7 @@ Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
 0.000.008 2013-08-31 12:15:00
  [FIX]   - Skip previous release; install looks like 0.000.006.
- [MAJOR] - Implemente SUBMIT_FASTQ - All major modes now implemented.
+ [MAJOR] - Implements SUBMIT_FASTQ - All major modes now implemented.
 
 0.000.007 2013-08-30 18:45:00 - Don't use: Error in release.
  [FIX]   - corrected name of cgsubmit executable

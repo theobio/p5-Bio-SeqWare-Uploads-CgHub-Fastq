@@ -81,9 +81,7 @@ my $MOCK_DBH = DBI->connect(
     { 'RaiseError' => 1, 'PrintError' => 0 },
 );
 
-# Class method tests
-subtest( 'getUuid()' => \&test_getUuid );
-
+# Internal method tests
 subtest( '_findNewLaneToZip()'         => \&test__findNewLaneToZip );
 subtest( '_createUploadWorkspace()'    => \&test__createUploadWorkspace );
 subtest( '_insertZipUploadRecord()'    => \&test__insertZipUploadRecord );
@@ -95,20 +93,17 @@ subtest( '_insertFileRecord()'         => \&test__insertFileRecord);
 subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
 subtest( '_insertFile()'               => \&test__insertFile);
 subtest( '_insertUploadFileRecord()'   => \&test__insertUploadFileRecord);
+subtest( '_getSampleSelectionSql()'    => \&test__getSampleSelectionSql);
+subtest( '_doZip()'                    => \&test__doZip );
 
-subtest( '_doZip()' => \&test__doZip );
 subtest( 'run_zip' => \&test_run_zip );
 
 #
 # Subtests
 #
-sub test_getUuid {
-    plan( tests => 1 );
-    like( $CLASS->getUuid(), qr/\A[\dA-F]{8}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{4}-[\dA-F]{12}\z/i, "Is a uuid, no trailing \n" );
-}
 
 sub test__findNewLaneToZip {
-    plan( tests => 14 );
+    plan( tests => 15 );
 
     my $sampleId    = -19;
     my $laneId      = -12;
@@ -120,7 +115,7 @@ sub test__findNewLaneToZip {
     {
         my @dbEventsOk = ({
             'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-            'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+            'bound_params' => [],
             'results'     => [
                 [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir', 'cghub_analysis_id' ],
                 [ $laneId,    $sampleId,   $uploadId,   $metaDataDir,   $uuidDir           ],
@@ -163,13 +158,45 @@ sub test__findNewLaneToZip {
         }
     }
 
+    # Test filtered selection by all paramteters!
+    {
+        my $opt = {
+            %$OPT_HR,
+            'sampleId' => -19,
+            'sampleAccession' => 999999,
+            'sampleAlias' => "PIPE_0000",
+            'sampleType' => 'BRCA',
+            'sampleTitle' => 'TCGA-CS-6188-01A-11R-1896-07',
+            'sampleUuid' => '00000000-0000-0000-0000-000000000000',
+        };
+        my $obj = $CLASS->new( $opt );
+
+        my @dbEventsOk = ({
+            'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+            'bound_params' => [ $opt->{'sampleId'}, $opt->{'sampleAccession'},
+                $opt->{'sampleAlias'}, $opt->{'sampleUuid'}, $opt->{'sampleTitle'}, $opt->{'sampleType'} ],
+            'results'     => [
+                [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir', 'cghub_analysis_id' ],
+                [ $laneId,    $sampleId,   $uploadId,   $metaDataDir,   $uuidDir           ],
+            ],
+        });
+        $MOCK_DBH->{'mock_session'} =
+            DBD::Mock::Session->new( @dbEventsOk );
+
+        {
+            my $got  = $obj->_findNewLaneToZip( $MOCK_DBH );
+            my $want = 1;
+            is( $got, $want, "Return 1 if found candidate to zip" );
+        }
+    }
+
     # Test when no lane to zip is found.
     {
         my $obj = $CLASS->new( $OPT_HR );
 
         my @dbEventsNone = ({
             'statement' => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-            'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+            'bound_params' => [],
             'results'   => [[]],
         });
         $MOCK_DBH->{'mock_session'} =
@@ -221,6 +248,108 @@ sub test__findNewLaneToZip {
 
 }
 
+sub test__getSampleSelectionSql {
+    plan( tests => 7 );
+
+    my $wantSqlStart =
+       "SELECT vwf.lane_id, u.sample_id, u.upload_id, u.metadata_dir, u.cghub_analysis_id
+        FROM vw_files AS vwf, upload_file AS uf, upload AS u, sample as s
+        WHERE vwf.file_id       = uf.file_id
+          AND uf.upload_id      = u.upload_id
+          AND u.sample_id       = s.sample_id
+          AND u.target          = 'CGHUB'
+          AND u.external_status = 'live'
+          AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
+          AND vwf.sample_id NOT IN (
+              SELECT u.sample_id
+              FROM upload AS u
+              WHERE u.target      = 'CGHUB_FASTQ'
+          )";
+
+    my  $wantSqlEnd = " order by vwf.lane_id DESC limit 1";
+
+    {
+        my $opt = { %$OPT_HR, 'sampleId' => -19 };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.sample_id = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with sample_id");
+        }
+    }
+    {
+        my $opt = { %$OPT_HR, 'sampleAccession' => 999999 };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.sw_accession = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with sw_accession");
+        }
+    }
+    {
+        my $opt = { %$OPT_HR, 'sampleAlias' => "PIPE_0000" };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.alias = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with alias");
+        }
+    }
+    {
+        my $opt = { %$OPT_HR, 'sampleUuid' => '00000000-0000-0000-0000-000000000000' };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.tcga_uuid = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with tcga_uuid");
+        }
+    }
+    {
+        my $opt = { %$OPT_HR, 'sampleTitle' => 'TCGA-CS-6188-01A-11R-1896-07' };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.title = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with title");
+        }
+    }
+    {
+        my $opt = { %$OPT_HR, 'sampleType' => 'BRCA' };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle = " AND s.type = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with type");
+        }
+    }
+    {
+        my $opt = {
+            %$OPT_HR,
+            'sampleId' => -19,
+            'sampleAccession' => 999999,
+            'sampleAlias' => "PIPE_0000",
+            'sampleType' => 'BRCA',
+            'sampleTitle' => 'TCGA-CS-6188-01A-11R-1896-07',
+            'sampleUuid' => '00000000-0000-0000-0000-000000000000',
+        };
+        my $obj = $CLASS->new( $opt );
+        my $wantSqlMiddle =
+              " AND s.sample_id = ? AND s.sw_accession = ? AND s.alias = ?"
+            . " AND s.tcga_uuid = ? AND s.title = ? AND s.type = ?";
+        {
+            my $want = $wantSqlStart . $wantSqlMiddle . $wantSqlEnd;
+            my $got = $obj->_getSampleSelectionSql();
+            is( $got, $want, "sample select sql with all optional options");
+        }
+    }
+}
+
 sub test__createUploadWorkspace {
     plan( tests => 7 );
 
@@ -228,6 +357,7 @@ sub test__createUploadWorkspace {
         'uploadFastqBaseDir' => $TEMP_DIR,
         '_bamUploadDir'      => $DATA_DIR,
         '_fastqUploadUuid'   => 'UniqueUuid',
+        
     };
     my $obj = $CLASS->new( $opt );
     my $dbh = undef;
@@ -430,7 +560,7 @@ sub test__tagLaneToUpload {
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'bound_params' => [],
         'results'     => [
             [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir',  'cghub_analysis_id' ],
             [ $laneId,    $sampleId,   $uploadId,   $bamMetaDataDir, $bamUuidDir        ],
@@ -1216,7 +1346,7 @@ sub test__doZip {
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'bound_params' => [],
         'results'     => [
             [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
             [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
@@ -1358,7 +1488,7 @@ sub test_run_zip {
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'boundParams' => [ 'CGHUB', 'live', 'CGHUB_FASTQ' ],
+        'bound_params' => [],
         'results'     => [
             [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
             [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
