@@ -1,6 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0015 : - Generate all xml from scratch.
+This is release v0.000.0018:
 
 # ROADMAP
 
@@ -29,3 +29,4 @@ for consideration.
 2013-08-21 v0.000.001 [MAJOR] Fold in current BAM upload code.
 2013-08-21 v0.000.001 [API]   dbh as object property?
 2013-08-27 v0.000.002 [API]   Allow specifying config file to program?
+2013-09-09 v0.000.018 [DEV]   Refactor param vs field use in _functions.
