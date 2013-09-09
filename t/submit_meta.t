@@ -67,7 +67,6 @@ subtest( '_submitMeta()'   => \&test__submitMeta   );
 sub test_doSubmitMeta {
      plan( tests => 5 );
 
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "validate_completed";
     my $newStatus = "submit-meta_running";
     my $finalStatus = "submit-meta_completed";
@@ -95,7 +94,7 @@ sub test_doSubmitMeta {
         'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+        'bound_params' => [ $oldStatus ],
         'results'  => [
             [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
             [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId   ],

@@ -79,7 +79,6 @@ subtest( 'doMeta()'                => \&test_doMeta );
 sub test_doMeta {
     plan( tests => 5 );
 
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "zip_completed";
     my $newStatus = "meta_running";
     my $finalStatus = "meta_completed";
@@ -109,7 +108,7 @@ sub test_doMeta {
         'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+        'bound_params' => [ $oldStatus ],
         'results'  => [
             [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
             [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,          $sampleId  ],

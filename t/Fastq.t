@@ -86,7 +86,7 @@ subtest( '_updateUploadStatus()'   => \&test__updateUploadStatus);
 $MOCK_DBH->disconnect();
 
 sub test__changeUploadRunStage {
-    plan( tests => 23 );
+    plan( tests => 25 );
 
     my $oldStatus = "parent_stage_completed";
     my $newStatus = "child_stage_running";
@@ -94,7 +94,6 @@ sub test__changeUploadRunStage {
     my $sampleId  = -19;
     my $metaDataDir = 't';
     my $uuid      = 'Data';
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
 
     my $obj = $CLASS->new( $OPT_HR );
     my $fakeUploadHR = {
@@ -110,7 +109,7 @@ sub test__changeUploadRunStage {
         'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+        'bound_params' => [ $oldStatus ],
         'results'  => [
             [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
             [ $uploadId,   $oldStatus, $metaDataDir,   $uuid,               $sampleId  ],
@@ -125,8 +124,7 @@ sub test__changeUploadRunStage {
     });
 
     {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "ChangeSubmitUploadTest", @dbSession );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
         is_deeply( $fakeUploadHR, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select upload appeard to work");
         is( $obj->{'_fastqUploadId'}, $uploadId, "Sets upload id");
     }
@@ -184,7 +182,7 @@ sub test__changeUploadRunStage {
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'bound_params' => [ $oldStatus ],
             'results'  => [[]]
         }, {
            'statement' => 'COMMIT',
@@ -195,13 +193,60 @@ sub test__changeUploadRunStage {
 
         is( undef, $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus ), "Select nothing upload appeard to work");
     }
+
+        # Test filtered selection by all paramteters!
+    {
+        my $opt = {
+            %$OPT_HR,
+            'sampleId' => -19,
+            'sampleAccession' => 999999,
+            'sampleAlias' => "PIPE_0000",
+            'sampleType' => 'BRCA',
+            'sampleTitle' => 'TCGA-CS-6188-01A-11R-1896-07',
+            'sampleUuid' => '00000000-0000-0000-0000-000000000000',
+        };
+        my $selObj = $CLASS->new( $opt );
+        my @dbSelectSession = ({
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/SELECT \*/msi,
+            'bound_params' => [  ],
+            'bound_params' => [ $oldStatus, $opt->{'sampleId'}, $opt->{'sampleAccession'},
+                $opt->{'sampleAlias'}, $opt->{'sampleUuid'}, $opt->{'sampleTitle'}, $opt->{'sampleType'} ],
+            'results'  => [
+                [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+                [ $uploadId,   $oldStatus, $metaDataDir,   $uuid,               $sampleId  ],
+            ]
+        }, {
+            'statement'    => qr/UPDATE upload/msi,
+            'bound_params' => [ $newStatus,  $uploadId ],
+            'results'  => [[ 'rows' ], []]
+        }, {
+           'statement' => 'COMMIT',
+            'results'  => [[]],
+        });
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSelectSession );
+
+        {
+            my $got  = $selObj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus );
+            my $want = $fakeUploadHR;
+            is_deeply( $got, $want, "Select filter by sample appeard to work");
+        }
+        {
+             my $got = $selObj->{'_fastqUploadId'};
+             my $want = $uploadId;
+            is( $got, $want, "Filtered by sample, sets upload id");
+        }
+    }
+
     {
         my @dbSession = ({
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'bound_params' => [ $oldStatus ],
             'results'  => [[ 'upload_id' ], []]
         }, {
            'statement' => 'ROLLBACK',
@@ -225,7 +270,7 @@ sub test__changeUploadRunStage {
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+            'bound_params' => [ $oldStatus ],
             'results'  => [
                 [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
                 [ $uploadId,   $oldStatus, $metaDataDir,   $uuid,               $sampleId  ],

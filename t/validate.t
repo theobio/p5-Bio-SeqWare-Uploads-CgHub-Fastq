@@ -67,7 +67,6 @@ subtest( '_validateMeta()' => \&test__validateMeta );
 sub test_doValidate {
     plan( tests => 5 );
 
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
     my $oldStatus = "meta_completed";
     my $newStatus = "validate_running";
     my $finalStatus = "validate_completed";
@@ -87,7 +86,7 @@ sub test_doValidate {
         'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $sqlTargetForFastqUpload, $oldStatus ],
+        'bound_params' => [ $oldStatus ],
         'results'  => [
             [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
             [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId  ],

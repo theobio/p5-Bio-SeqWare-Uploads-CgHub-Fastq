@@ -302,15 +302,14 @@ sub run {
     $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
 
 
-
     # Run as selected.
     eval {
         if ( $runMode eq "ALL" ) {
-            $self->run('ZIP', $dbh);
-            $self->run('META', $dbh);
-            $self->run('VALIDATE', $dbh);
-            $self->run('SUBMIT_META', $dbh);
-            $self->run('SUBMIT_FASTQ', $dbh);
+            $self->doZip( $dbh );
+            $self->doMeta( $dbh );
+            $self->doValidate( $dbh );
+            $self->doSubmitMeta( $dbh );
+            $self->doSubmitFastq( $dbh );
         }
         elsif ($runMode eq "ZIP" ) {
             $self->doZip( $dbh );
@@ -1704,15 +1703,33 @@ sub _changeUploadRunStage {
 
     my %upload;
 
-    # Setup SQL
-    my $sqlTargetForFastqUpload = 'CGHUB_FASTQ';
-
-    my $selectionSQL =
+    # Setup select upload record SQL
+    my $selectSql =
        "SELECT *
-        FROM upload
-        WHERE target = ?
-          AND status = ?
-        ORDER by upload_id DESC limit 1";
+        FROM upload AS u, sample AS s
+        WHERE u.target = 'CGHUB_FASTQ'
+          AND s.sample_id = u.sample_id
+          AND u.status = ?";
+
+    if ($self->{'sampleId'       }) { $selectSql .= " AND s.sample_id = ?";    }
+    if ($self->{'sampleAccession'}) { $selectSql .= " AND s.sw_accession = ?"; }
+    if ($self->{'sampleAlias'    }) { $selectSql .= " AND s.alias = ?";       }
+    if ($self->{'sampleUuid'     }) { $selectSql .= " AND s.tcga_uuid = ?";    }
+    if ($self->{'sampleTitle'    }) { $selectSql .= " AND s.title = ?";        }
+    if ($self->{'sampleType'     }) { $selectSql .= " AND s.type = ?";         }
+
+    $selectSql .= " ORDER by upload_id DESC limit 1";
+
+    $self->sayVerbose( "Selction sql:\$selectSql");
+
+    # Setup SQL parameters for select upload
+    my @sqlParameters = ( $fromStatus );
+    if ($self->{'sampleId'       }) { push @sqlParameters, $self->{'sampleId'       }; }
+    if ($self->{'sampleAccession'}) { push @sqlParameters, $self->{'sampleAccession'}; }
+    if ($self->{'sampleAlias'    }) { push @sqlParameters, $self->{'sampleAlias'    }; }
+    if ($self->{'sampleUuid'     }) { push @sqlParameters, $self->{'sampleUuid'     }; }
+    if ($self->{'sampleTitle'    }) { push @sqlParameters, $self->{'sampleTitle'    }; }
+    if ($self->{'sampleType'     }) { push @sqlParameters, $self->{'sampleType'     }; }
 
     my $updateSQL =
        "UPDATE upload
@@ -1725,8 +1742,14 @@ sub _changeUploadRunStage {
     eval {
         $dbh->begin_work();
 
-        my $selectionSTH = $dbh->prepare( $selectionSQL );
-        $selectionSTH->execute( $sqlTargetForFastqUpload, $fromStatus );
+        my $selectionSTH = $dbh->prepare( $selectSql );
+        if (@sqlParameters && scalar @sqlParameters > 0) {
+            $self->sayVerbose( "Select SQL parameters:\n" . Dumper( \@sqlParameters) );
+            $selectionSTH->execute(@sqlParameters);
+        }
+        else {
+            $selectionSTH->execute();
+        }
         my $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
 
@@ -2436,7 +2459,7 @@ sub sayVerbose {
         $uuid_tag = $1;
     }
     else {
-        $uuid_tag = '12345678';
+        $uuid_tag = '00000000';
     }
     print( wrap("$uuid_tag: [INFO] $timestamp - ", "\t", "$message\n" ));
 }
