@@ -280,7 +280,6 @@ sub run {
                 croak "Failed to create Bio::SeqWare::Db::Connection.\n";
             }
 
-            print ("DEBUG: " . Dumper($connectionBuilder));
             $dbh = $connectionBuilder->getConnection(
                  {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1, 'ShowErrorStatement' => 1}
             );
@@ -958,28 +957,6 @@ sub _createUploadWorkspace {
         my $error = $@;
         $self->{'error'} = "creating_upload_dir";
         croak "Could not create the upload output dir: $self->{'_fastqUploadDir'}\n$!\n$@\n";
-    }
-
-    my $fromRunFilePath = File::Spec->catfile( $self->{'_bamUploadDir'},   "run.xml" );
-    my $toRunFilePath   = File::Spec->catfile( $self->{'_fastqUploadDir'}, "run.xml" );
-    eval {
-        cp( $fromRunFilePath, $toRunFilePath );
-    };
-    if ($@) {
-        my $error = $@;
-        $self->{'error'} = "copying_run_xml";
-        croak "Could not copy the run.xml meta file FROM: $fromRunFilePath\nTO: $toRunFilePath\n$!\n$error\n";
-    }
-
-    my $fromExperimentFilePath = File::Spec->catfile( $self->{'_bamUploadDir'},   "experiment.xml" );
-    my $toExperimentFilePath   = File::Spec->catfile( $self->{'_fastqUploadDir'}, "experiment.xml" );
-    eval {
-        cp( $fromExperimentFilePath, $toExperimentFilePath );
-    };
-    if ($@) {
-        my $error = $@;
-        $self->{'error'} = "copying_experiment_xml";
-        croak "Could not copy the experiment.xml meta file FROM: $fromExperimentFilePath\nTO: $toExperimentFilePath\n$!\n$error\n";
     }
 
     return 1;

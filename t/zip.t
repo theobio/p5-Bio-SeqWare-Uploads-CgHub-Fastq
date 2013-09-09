@@ -351,68 +351,67 @@ sub test__getSampleSelectionSql {
 }
 
 sub test__createUploadWorkspace {
-    plan( tests => 7 );
+    plan( tests => 6 );
 
     my $opt = { %$OPT_HR,
         'uploadFastqBaseDir' => $TEMP_DIR,
-        '_bamUploadDir'      => $DATA_DIR,
         '_fastqUploadUuid'   => 'UniqueUuid',
-        
     };
-    my $obj = $CLASS->new( $opt );
-    my $dbh = undef;
-
 
     # Run the procedure on a good object
     {
-        my $got  = $obj->_createUploadWorkspace();
-        my $want = 1;
+        my $obj = $CLASS->new( $opt );
         {
+            my $got  = $obj->_createUploadWorkspace();
+            my $want = 1;
             is( $got, $want, "_createUploadWorkspace appears to run succesfully");
         }
     }
 
-    # Check results for experiment.xml
+    # Should fail if recreate same directory
     {
-        my $fromFile = File::Spec->catfile(
-            $obj->{'_bamUploadDir'},
-            "experiment.xml"
-        );
-        my $toFile = File::Spec->catfile(
-            $obj->{'uploadFastqBaseDir'},
-            $obj->{'_fastqUploadUuid'},
-            "experiment.xml"
-        );
+        my $obj = $CLASS->new( $opt );
+        eval {
+            $obj->_createUploadWorkspace();
+        };
+        my $error = $@;
         {
-            ok(-f $fromFile && (-s $fromFile) > 0, "Found source experiment file");
+            my $got  = $error;
+            my $want = qr/Upload directory already exists/;
+            like( $got, $want, "Error message correct if output dir already exists");
         }
         {
-            ok(-f $toFile && (-s $toFile) > 0, "Found target experiment file after copy");
-        }
-        {
-            files_eq( $fromFile, $toFile, "experiment file copied ok");
+            my $got  = $obj->{'error'};
+            my $want = 'fastq_upload_dir_exists';
+            is( $got, $want, "Error tag correct if output dir already exists");
         }
     }
-    
-    # Check results for run.xml
+
+    # Run the procedure on a bad object
     {
-        my $fromFile = File::Spec->catfile(
-            $obj->{'_bamUploadDir'},
-            "run.xml"
-        );
-        my $toFile = File::Spec->catfile(
-            $obj->{'uploadFastqBaseDir'},
-            $obj->{'_fastqUploadUuid'},
-            "run.xml"
-        );
+        my $badDirName = "/NoSuchDir_I_h0PE/";
+        my $opt = { %$OPT_HR,
+            'uploadFastqBaseDir' => $badDirName,
+            '_fastqUploadUuid'   => 'UniqueUuid',
+        };
+
+        my $obj = $CLASS->new( $opt );
+        eval {
+            $obj->_createUploadWorkspace();
+        };
+        my $error = $@;
         {
-            ok(-f $fromFile && (-s $fromFile) > 0, "Found source run file");
+            ok(! (-d $badDirName), "Directory does not exist before test");
         }
         {
-            ok(-f $toFile && (-s $toFile) > 0, "Found target run file after copy");
+            my $got  = $error;
+            my $want = qr/Can\'t find the fastq upload base dir: $badDirName/;
+            like( $got, $want, "Error message correct if output dir already exists");
         }
         {
-            files_eq( $fromFile, $toFile, "run file copied ok");
+            my $got  = $obj->{'error'};
+            my $want = 'no_fastq_base_dir';
+            is( $got, $want, "Error tag correct if base dir doesn't exists");
         }
     }
 }
