@@ -31,11 +31,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.015
+Version 0.000.016
 
 =cut
 
-our $VERSION = '0.000015';
+our $VERSION = '0.000016';
 
 =head1 SYNOPSIS
 
@@ -340,7 +340,7 @@ sub run {
                 $self->{'error'} = 'failed_run_unknown_error';
             }
             eval {
-                $self->_updateUploadStatus( $dbh, $self->{'error'} );
+                $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, $self->{'error'} );
             };
             if ($@) {
                 $error .= " ALSO: Did not update UPLOAD: $self->{'_fastqUploadId'}\n";
@@ -1956,7 +1956,7 @@ sub _getTemplateDataReadEnds {
          WHERE  e.experiment_id                 = ?
            AND  e.experiment_spot_design_id     = d.experiment_spot_design_id
            AND rs.experiment_spot_design_id     = d.experiment_spot_design_id
-           AND rs_class                         =  'Application Read'
+           AND rs.class                         =  'Application Read'
            AND rs.read_type                    !=  'BarCode'";
 
     my $readEnds;
@@ -2464,9 +2464,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.015
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.016
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.015.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.016.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

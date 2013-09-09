@@ -1,12 +1,18 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.016 2013-09-08  22:15:00
+ [FIX]   - Corrected upload error status update.
+           Missed: Low test coverage of exceptions.
+ [FIX]   - SQL typo.
+           Missed: No live DB tests.
+
 0.000.015 2013-09-08 18:00:00
  [MAJOR] - Generating run and experiment.xml instead of copying them.
  [ADD]   - Limit selection of samples to V2 only (by upload output dir).
  [ADD]   - Filter sample selection by sample info.
  [API]   - Made getTimeStamp an OO (class) function.
  [FIX]   - Corrected id storage that prevented error status updates to db.
- [FIX]   - Corrected test of xml content that failed true
+ [FIX]   - Corrected test of xml content that failed true.
  [FIX]   - Corrected minor info in analysis.xml.
 
 0.000.014 2013-08-31 22:45:00
