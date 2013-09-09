@@ -1956,7 +1956,7 @@ sub _getTemplateDataReadEnds {
          WHERE  e.experiment_id                 = ?
            AND  e.experiment_spot_design_id     = d.experiment_spot_design_id
            AND rs.experiment_spot_design_id     = d.experiment_spot_design_id
-           AND rs.class                         =  'Application Read'
+           AND rs.read_class                    =  'Application Read'
            AND rs.read_type                    !=  'BarCode'";
 
     my $readEnds;
@@ -2014,7 +2014,9 @@ sub _getTemplateDataReadLength {
     my $bamFileSQL =
         "SELECT f.file_path
          FROM upload AS u, upload_file AS uf, file AS f
-         WHERE u.target          = 'CGHUB'
+         WHERE u.upload_id = uf.upload_id
+           AND uf.file_id = f.file_id
+           AND u.target          = 'CGHUB'
            AND u.external_status = 'live'
            AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
            AND u.sample_id       = ?";
