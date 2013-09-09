@@ -1,9 +1,13 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.018 2013-09-09 16:30:00
+0.000.019 2013-09-09 16:45:00
+ [FIX]   - Commit changes before release - prior release bad
  [ADD]   - Sample selection now works with all run steps.
  [FIX]   - Fixed ALL stage, was dropping db connection
            Missed: Low test coverage
+
+0.000.018 2013-09-09 16:30:00
+ [BAD]   - Do not use - released without updating git.
 
 0.000.017 2013-09-08  22:45:00
  [FIX]   - SQL query problems in META run mode.
