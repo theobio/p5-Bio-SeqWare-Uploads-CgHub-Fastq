@@ -93,6 +93,9 @@ sub test_doSubmitFastq {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+    }, {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $oldStatus ],
         'results'  => [

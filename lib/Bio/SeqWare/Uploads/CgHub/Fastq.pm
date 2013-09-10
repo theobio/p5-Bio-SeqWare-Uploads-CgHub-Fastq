@@ -699,6 +699,7 @@ sub _tagLaneToUpload {
         # Transaction to ensures 'find' and 'tag as found' occur in one step,
         # allowing for parallel running.
         $dbh->begin_work();
+        $dbh->do("SET TRANSACTION SERIALIZABLE");
         $self->_findNewLaneToZip( $dbh );
         $self->_createUploadWorkspace();
         $self->_insertZipUploadRecord( $dbh, $newUploadStatus);
@@ -1741,6 +1742,7 @@ sub _changeUploadRunStage {
     # DB transaction
     eval {
         $dbh->begin_work();
+        $dbh->do("SET TRANSACTION SERIALIZABLE");
 
         my $selectionSTH = $dbh->prepare( $selectSql );
         if (@sqlParameters && scalar @sqlParameters > 0) {

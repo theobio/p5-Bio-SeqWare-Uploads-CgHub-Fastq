@@ -85,6 +85,9 @@ sub test_doValidate {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+    }, {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $oldStatus ],
         'results'  => [

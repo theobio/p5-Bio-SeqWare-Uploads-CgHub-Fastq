@@ -558,6 +558,9 @@ sub test__tagLaneToUpload {
          'statement' => 'BEGIN WORK',
          'results'  => [[]],
     }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+    }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
         'bound_params' => [],
         'results'     => [
@@ -1344,6 +1347,9 @@ sub test__doZip {
          'statement' => 'BEGIN WORK',
          'results'  => [[]],
     }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+    }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
         'bound_params' => [],
         'results'     => [
@@ -1484,6 +1490,9 @@ sub test_run_zip {
 
     my @dbEventsOk = ({
          'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+    }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,

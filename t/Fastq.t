@@ -108,6 +108,9 @@ sub test__changeUploadRunStage {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+    }, {
         'statement'    => qr/SELECT \*/msi,
         'bound_params' => [ $oldStatus ],
         'results'  => [
@@ -181,6 +184,9 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
+         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'results'  => [[]],
+        }, {
             'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $oldStatus ],
             'results'  => [[]]
@@ -208,6 +214,9 @@ sub test__changeUploadRunStage {
         my $selObj = $CLASS->new( $opt );
         my @dbSelectSession = ({
             'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement' => 'SET TRANSACTION SERIALIZABLE',
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
@@ -245,6 +254,9 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
+            'statement' => 'SET TRANSACTION SERIALIZABLE',
+            'results'  => [[]],
+        }, {
             'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $oldStatus ],
             'results'  => [[ 'upload_id' ], []]
@@ -268,6 +280,9 @@ sub test__changeUploadRunStage {
         my @dbSession = ({
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
+        }, {
+             'statement' => 'SET TRANSACTION SERIALIZABLE',
+             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
             'bound_params' => [ $oldStatus ],
