@@ -1,5 +1,10 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.020 2013-09-10 15:30:00
+ [FIX]   - Parallel runs selecting same zip file to run.
+           Missed: Postgres default transaction mode not serializable,
+           No concurrency tests; No live db tests.
+
 0.000.019 2013-09-09 16:45:00
  [FIX]   - Commit changes before release - prior release bad
  [ADD]   - Sample selection now works with all run steps.
