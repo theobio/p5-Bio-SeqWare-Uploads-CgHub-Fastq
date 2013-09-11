@@ -558,7 +558,7 @@ sub test__tagLaneToUpload {
          'statement' => 'BEGIN WORK',
          'results'  => [[]],
     }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
@@ -1347,7 +1347,7 @@ sub test__doZip {
          'statement' => 'BEGIN WORK',
          'results'  => [[]],
     }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
@@ -1492,7 +1492,7 @@ sub test_run_zip {
          'statement' => 'BEGIN WORK',
          'results'  => [[]],
     }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,

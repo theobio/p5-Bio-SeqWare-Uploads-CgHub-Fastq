@@ -108,7 +108,7 @@ sub test__changeUploadRunStage {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
@@ -184,7 +184,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
@@ -216,7 +216,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement' => 'SET TRANSACTION SERIALIZABLE',
+            'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
@@ -254,7 +254,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-            'statement' => 'SET TRANSACTION SERIALIZABLE',
+            'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
@@ -281,7 +281,7 @@ sub test__changeUploadRunStage {
             'statement' => 'BEGIN WORK',
             'results'  => [[]],
         }, {
-             'statement' => 'SET TRANSACTION SERIALIZABLE',
+             'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
              'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,

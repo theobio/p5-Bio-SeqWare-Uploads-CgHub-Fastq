@@ -93,7 +93,7 @@ sub test_doSubmitMeta {
         'statement' => 'BEGIN WORK',
         'results'  => [[]],
     }, {
-         'statement' => 'SET TRANSACTION SERIALIZABLE',
+         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
          'results'  => [[]],
     }, {
         'statement'    => qr/SELECT \*/msi,
