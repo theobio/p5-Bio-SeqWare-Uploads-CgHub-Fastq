@@ -1,5 +1,9 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.021 2013-09-11 11:15:00
+ [FIX]   - Incorrect syntax for setting transactions.
+           Missed: No live db tests.
+
 0.000.020 2013-09-10 15:30:00
  [FIX]   - Parallel runs selecting same zip file to run.
            Missed: Postgres default transaction mode not serializable,

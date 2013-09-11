@@ -164,7 +164,7 @@ sub test_doSubmitMeta {
 
 sub test__submitMeta {
 
-    plan( tests => 20 );
+    plan( tests => 22 );
     my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
                           . "Metadata Submission Succeeded.\n";
 
@@ -397,6 +397,24 @@ sub test__submitMeta {
         $mock_readpipe->{'mock'} = 0;
         $mock_readpipe->{'exit'} = 0;
     }
-    
+
+    # Bad input handling
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+            $obj->_submitMeta( undef );
+        };
+        my $error = $@;
+        {
+            my $got = $error;
+            my $want = qr/_submitMeta\(\) missing \$uploadHR parameter\./;
+            like( $got, $want, "Error if no uploadHR param");
+        }
+        {
+            my $got = $obj->{'error'};
+            my $want = 'param_submitMeta_uploadHR';
+            is( $got, $want, "Errror tag if no dbh param");
+        }
+    }
 
 }

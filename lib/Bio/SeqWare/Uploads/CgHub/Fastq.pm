@@ -31,11 +31,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.020
+Version 0.000.021
 
 =cut
 
-our $VERSION = '0.000020';
+our $VERSION = '0.000021';
 
 =head1 SYNOPSIS
 
@@ -2213,8 +2213,8 @@ sub _validateMeta {
     my $uploadHR = shift;
 
     unless ( $uploadHR ) {
-        $self->{'error'} = 'param_validateMeta_$uploadHR';
-        croak( "Missing parameter: requires specifying upload record." );
+        $self->{'error'} = 'param_validateMeta_uploadHR';
+        croak ("_validateMeta() missing \$uploadHR parameter.");
     }
 
     my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
@@ -2279,8 +2279,8 @@ sub _submitMeta {
     my $uploadHR = shift;
 
     unless ( $uploadHR ) {
-        $self->{'error'} = "param_submitMeta_uploadHR";
-        croak( "Missing parameter: requires specifying upload record." );
+        $self->{'error'} = 'param_submitMeta_uploadHR';
+        croak ("_submitMeta() missing \$uploadHR parameter.");
     }
 
     my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
@@ -2361,8 +2361,9 @@ sub _submitFastq {
 
     unless ( $uploadHR ) {
         $self->{'error'} = 'param_submitFastq_uploadHR';
-        croak( "Missing parameter: requires specifying upload record." );
+        croak ("_submitFastq() missing \$uploadHR parameter.");
     }
+
 
     my $GTUPLOAD_EXEC = '/usr/bin/gtupload';
     my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
@@ -2453,7 +2454,7 @@ sub sayVerbose {
         return;
     }
     if (! defined $message) {
-        $message = "__NULL__";
+        $message = "( undef )";
     }
     my $timestamp = Bio::SeqWare::Uploads::CgHub::Fastq->getTimeStamp();
     my $uuid_tag = $self->{'_fastqUploadUuid'};
@@ -2491,9 +2492,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.020
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.021
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.020.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.021.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

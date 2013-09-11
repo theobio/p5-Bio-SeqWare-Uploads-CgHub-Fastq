@@ -163,7 +163,7 @@ sub test_doSubmitFastq {
 
 sub test__submitFastq {
 
-    plan( tests => 20 );
+    plan( tests => 22 );
     my $fakeValidMessage = "Fake (GOOD) Submission Return\n"
                           . "100.000.\n";
 
@@ -394,6 +394,25 @@ sub test__submitFastq {
         $mock_readpipe->{'mock'} = 0;
         $mock_readpipe->{'exit'} = 0;
     }
-    
+
+    # Bad input handling
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+            $obj->_submitFastq( undef );
+        };
+        my $error = $@;
+        {
+            my $got = $error;
+            my $want = qr/_submitFastq\(\) missing \$uploadHR parameter\./;
+            like( $got, $want, "Error if no uploadHR param");
+        }
+        {
+            my $got = $obj->{'error'};
+            my $want = 'param_submitFastq_uploadHR';
+            is( $got, $want, "Errror tag if no dbh param");
+        }
+    }
+
 
 }

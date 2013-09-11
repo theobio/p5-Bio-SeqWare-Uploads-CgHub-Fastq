@@ -593,16 +593,68 @@ sub testgetTimeStamp {
 
 }
 sub test_sayVerbose {
-	plan( tests => 1 );
+	plan( tests => 5 );
+
+    # Output with Uuid tag
     {
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890AB';
         $obj->{'verbose'} = 1;
         my $text = 'Say something';
         my $expectRE = qr/^567890AB: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
-        stdout_like { $obj->sayVerbose( $text )}
-                     $expectRE, "output uuid-tag, date format, and message";
+        {
+            stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with uuid";
+        }
     }
+
+    # Output with undefined message
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890AB';
+        $obj->{'verbose'} = 1;
+        my $text = undef;
+        my $expectRE = qr/^567890AB: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - \( undef \)$/;
+        {
+            stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with no message";
+        }
+    }
+
+    # Output with No Uuid tag
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = undef;
+        $obj->{'verbose'} = 1;
+        my $text = 'Say something';
+        my $expectRE = qr/^00000000: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
+        {
+            stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with no uuid";
+        }
+    }
+
+    # Output with Bad Uuid tag
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = "1234";
+        $obj->{'verbose'} = 1;
+        my $text = 'Say something';
+        my $expectRE = qr/^00000000: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
+        {
+            stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with bad uuid";
+        }
+    }
+
+    # Output with Bad message
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadUuid'} = "1234";
+        $obj->{'verbose'} = 1;
+        my $text = 'Say something';
+        my $expectRE = qr/^00000000: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
+        {
+            stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with bad uuid";
+        }
+    }
+
 }
 
 sub testGetAll {

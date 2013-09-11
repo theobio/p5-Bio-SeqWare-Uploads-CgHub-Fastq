@@ -155,7 +155,7 @@ sub test_doValidate {
 
 sub test__validateMeta {
 
-    plan( tests => 13 );
+    plan( tests => 15 );
     my $fakeValidMessage = "Fake (GOOD) Validate Return\n"
                           . "Metadata Validation Succeeded.\n";
     my $fakeNotValidMessage   = "Fake (BAD) Validate Return\n"
@@ -312,4 +312,22 @@ sub test__validateMeta {
         $mock_readpipe->{'mock'} = 0;
     }
 
+    # Bad input handling
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+            $obj->_validateMeta( undef );
+        };
+        my $error = $@;
+        {
+            my $got = $error;
+            my $want = qr/_validateMeta\(\) missing \$uploadHR parameter\./;
+            like( $got, $want, "Error if no uploadHR param");
+        }
+        {
+            my $got = $obj->{'error'};
+            my $want = 'param_validateMeta_uploadHR';
+            is( $got, $want, "Errror tag if no dbh param");
+        }
+    }
 }
