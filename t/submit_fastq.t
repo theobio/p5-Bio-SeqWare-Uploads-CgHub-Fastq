@@ -410,7 +410,7 @@ sub test__submitFastq {
         {
             my $got = $obj->{'error'};
             my $want = 'param_submitFastq_uploadHR';
-            is( $got, $want, "Errror tag if no dbh param");
+            is( $got, $want, "Errror tag if no uploadHR param");
         }
     }
 

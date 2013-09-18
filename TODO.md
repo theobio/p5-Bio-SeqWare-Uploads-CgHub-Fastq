@@ -19,7 +19,10 @@ from "In consideration".
 2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
                               and test.
 2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
-2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options
+2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options.
+    Parameterize all settings different from bam uploads for future merge.
+2012-09-18 v0.000.021 [DEV] - Refactor updates and changes to upload record.
+    Rule of 3 smell: functions with same task, different parameters.
 
 # IN CONSIDERATION
 

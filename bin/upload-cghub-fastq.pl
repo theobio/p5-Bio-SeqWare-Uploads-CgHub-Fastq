@@ -125,14 +125,16 @@ that is not already running.
 
 =head1 OPTIONS
 
-=over 4
+=head2 The --runMode option
 
-=item runMode
+=over 3
+
+=item --runMode
 
 The C<--runMode> parameter detemines what this program does when invoked, and
 can be any of the following 5 values. (default is "ALL").
 
-=over 3
+=over 4
 
 =item  ZIP
 
@@ -146,8 +148,8 @@ Needs to identify the workflow_runIids for the uploaded bam files,
 select vf.file_id from vw_files where
    vw.workflow_run_id in (select workflow_run id where bams are uploaded)
    AND vw.workflow_run_id not in (select workflow_run id where fastq-zips are uploaded)
-   AND 
-   
+   AND ...
+
 =item META
 
 Generates the meta-data for upload for this sample. The data from the previous
@@ -177,15 +179,33 @@ Errors should change the status to "validate_failed<reason>" but that is not
 fully implemented. Probably just leaves them hanging as validate_running. This
 step should not take more than a minute to run.
 
-=item SUBMIT
+=item SUBMIT-META
 
-Does the upload.
+Performs the upload of the meta data with cgsubmit
+
+=item SUBMIT-FASTQ
+
+Performs the upload of the fastq file with gtsubmit
+
+=item LIVE
+
+Checks if data is visible to the community, updates external_status to live or
+"not-found". Only checks records for target CGHUB-FASTQ and status
+"submit-fastq_completed", depending on current external status. If null or "",
+checks. If "check-again-later" checks only if 24 hours (default) has ellapsed
+since last check. If anything else (including "live"), does not check.
 
 =item ALL
 
-Run all steps, in order ("ZIP", "META", "VALIDATE", "SUBMIT").
+Run all steps, in order: "ZIP", "META", "VALIDATE", "SUBMIT-META", "SUBMIT-FASTQ", "LIVE".
 
 =back
+
+=back
+
+=head2 Processing options
+
+=over 3
 
 =item --minFastqSize
 
@@ -214,10 +234,27 @@ I<Not implemented>
 
 I<Not implemented> Will allow rerunning by over-riding previously created.
 
+=item --recheckWaitHours 24
+
+Delay before retrying something that should be tried again automatically
+without review, but depends on some external process that may or may not update
+on a regular schedule. i.e. checking to see if a sample is live; see
+C<--runmode LIVE> above. The default value is 24 hours.
+
 =item --verbose
 
 If set, causes sql queries and data values to print at each stage. Off by
 default.
+
+=back
+
+=head2 Selection options.
+
+Whichever stage is run, this will limit selection of what to process to
+input that meets ALL critera specified. By default none of these are are
+used.
+
+=over 3
 
 =item --sampleId INT
 
@@ -262,6 +299,7 @@ sub _processCommandLine {
         'runMode'          => 'ALL',
         'xmlSchema'        => 'SRA_1-5',
         'templateBaseDir'  => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
+        'recheckWaitHours' => 24,
     };
 
     # Combine local defaults with ()over-ride by) config file options
@@ -301,6 +339,7 @@ sub _processCommandLine {
         'minFastqSize=i'       => \$opt{'minFastqSize'},
         'rerun'                => \$opt{'rerun'},
         'runMode=s'            => \$opt{'runMode'},
+        'recheckWaitHours'     => \$opt{'recheckWaitHours'},
 
         'xmlSchema=s'          => \$opt{'xmlSchema'},
         'templateBaseDir=s'    => \$opt{'templateBaseDir'},

@@ -67,6 +67,7 @@ supported by the processing logic.
 
 =cut
 
+
 =head1 CLASS METHODS
 
 =cut
@@ -218,6 +219,7 @@ sub getFileBaseName {
     }
     return ($base, $ext);
 }
+
 
 =head1 INSTANCE METHODS
 
@@ -472,7 +474,7 @@ sub doZip {
 
 =head2 doMeta()
 
- $obj->doMeta();
+ $obj->doMeta( $dbh );
 
 From $obj, reads:
  _metaDataRoot      - Absolute path to some directory
@@ -520,9 +522,9 @@ sub doMeta {
     return 1;
 }
 
-=head2 = doValidate()
+=head2 doValidate()
 
- $obj->doValidate();
+ $obj->doValidate( $dbh );
 
 =cut
 
@@ -553,9 +555,9 @@ sub doValidate() {
     return 1;
 }
 
-=head2 = doSubmitMeta()
+=head2 doSubmitMeta()
 
-    $obj->doSubmitMeta();
+    $obj->doSubmitMeta( $dbh );
 
 =cut
 
@@ -587,9 +589,9 @@ sub doSubmitMeta() {
     return 1;
 }
 
-=head2 = doSubmitFastq()
+=head2 doSubmitFastq()
 
-    $obj->doSubmitFastq();
+    $obj->doSubmitFastq( $dbh );
 
 =cut
 
@@ -621,7 +623,52 @@ sub doSubmitFastq() {
     return 1;
 }
 
-=head2 = getAll()
+=head2 doLive()
+
+    $obj->doLive( $dbh );
+
+=cut
+
+sub doLive() {
+
+    my $self = shift;
+    my $dbh = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = 'failed_live_param_doLive_dbh';
+        croak ("doLive() missing \$dbh parameter.");
+    }
+
+    return 1;
+
+#    eval {
+#        my $status = 'live_running';
+#        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit-fastq_completed', $status );
+#        if ($uploadHR)  {
+#            my $externalStatus = $self->_live( $uploadHR );
+#            if ($externalStatus eq "recheck-waiting") {
+#                $status = 'submit-fastq_completed';
+#            }
+#            else {
+#                $status = 'live_completed';
+#            }
+#            $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $externalStatus, $status);
+#        }
+#    };
+#    if ($@) {
+#        my $error = $@;
+#        if (! $self->{'error'}) {
+#            $self->{'error'} = 'unknown_error';
+#        }
+#        $self->{'error'} = 'failed_live_' . $self->{'error'};
+#        croak $error;
+#    }
+#
+#    return 1;
+
+}
+
+=head2 getAll()
 
   my $settingsHR = $obj->getAll();
   
@@ -639,7 +686,6 @@ sub getAll() {
     }
     return $copy;
 }
-
 
 =head2 getTimeStamp()
 
@@ -1294,7 +1340,7 @@ sub _getFilesToZip {
 
 =head2 _updateUploadStatus( ... )
 
-    $self->_updateUploadStatus( $dbh, $newStatus );
+    $self->_updateUploadStatus( $dbh, $uploadId, $newStatus );
 
 Set the status of the internally referenced upload record to the specified
 $newStatus string.
@@ -1354,6 +1400,76 @@ sub _updateUploadStatus {
     }
 
     $self->sayVerbose("Set upload status for upload_id $uploadId to \"$newStatus\".");
+    return 1;
+}
+
+=head2 _updateExternalStatus( ... )
+
+    $self->_updateExternalStatus( $dbh, $uploadId, $newStatus, $externalStatus );
+
+Set the status and external status of the internally referenced upload record
+to the specified $newStatus and $externalStatus strings.
+
+=cut
+
+sub _updateExternalStatus {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadId = shift;
+    my $newStatus = shift;
+    my $externalStatus = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = 'param__updateExternalStatus_dbh';
+        croak ("_updateExternalStatus() missing \$dbh parameter.");
+    }
+    unless ($uploadId) {
+        $self->{'error'} = 'param__updateExternalStatus_uploadId';
+        croak ("_updateExternalStatus() missing \$uploadId parameter.");
+    }
+    unless ($newStatus) {
+        $self->{'error'} = 'param__updateExternalStatus_newStatus';
+        croak ("_updateExternalStatus() missing \$newStatus parameter.");
+    }
+    unless ($externalStatus) {
+        $self->{'error'} = 'param__updateExternalStatus_externalStatus';
+        croak ("_updateExternalStatus() missing \$externalStatus parameter.");
+    }
+
+    my $updateSQL =
+        "UPDATE upload
+         SET status = ?, external_status = ?
+         WHERE upload_id = ?";
+
+    eval {
+        $dbh->begin_work();
+        my $updateSTH = $dbh->prepare($updateSQL);
+        $updateSTH->execute( $newStatus, $externalStatus, $uploadId );
+        my $rowsAffected = $updateSTH->rows();
+        $updateSTH->finish();
+
+        if (! defined $rowsAffected || $rowsAffected != 1) {
+            $self->{'error'} = 'update_upload';
+            croak "Update appeared to fail.";
+        }
+        $dbh->commit();
+    };
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= " ALSO: error rolling back _updateExternalStatus transaction: $@\n";
+        }
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'update_upload_and_external_status'
+        }
+        croak "Failed to update the status and external_status of upload record upload_id=$uploadId to $newStatus with external_status $externalStatus: $error\n";
+    }
+
+    $self->sayVerbose("Upload $uploadId now has externa_status \"$externalStatus\", status \"$newStatus\".");
     return 1;
 }
 
@@ -2434,6 +2550,24 @@ sub _submitFastq {
 
     chdir( $oldCwd );
     return 1;
+
+}
+
+=head2 _live
+
+   $obj->_live( $uploadHR );
+
+=cut
+
+sub _live {
+ 
+    my $self     = shift;
+    my $uploadHR = shift;
+
+    unless ( $uploadHR ) {
+        $self->{'error'} = 'param_submitFastq_uploadHR';
+        croak ("_submitFastq() missing \$uploadHR parameter.");
+    }
 
 }
 

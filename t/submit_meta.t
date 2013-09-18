@@ -413,7 +413,7 @@ sub test__submitMeta {
         {
             my $got = $obj->{'error'};
             my $want = 'param_submitMeta_uploadHR';
-            is( $got, $want, "Errror tag if no dbh param");
+            is( $got, $want, "Errror tag if no uploadHR param");
         }
     }
 

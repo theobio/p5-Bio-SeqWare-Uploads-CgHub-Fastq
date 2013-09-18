@@ -11,7 +11,7 @@ use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
 use Test::Output;         # Tests what appears on stdout.
-use Test::More 'tests' => 1 + 10;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 11;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -81,7 +81,8 @@ subtest( 'sayVerbose()'   => \&test_sayVerbose  );
 
 # Internal methods
 subtest( '_changeUploadRunStage()' => \&test__changeUploadRunStage );
-subtest( '_updateUploadStatus()'   => \&test__updateUploadStatus);
+subtest( '_updateUploadStatus()'   => \&test__updateUploadStatus   );
+subtest( '_updateExternalStatus()' => \&test__updateExternalStatus );
 
 $MOCK_DBH->disconnect();
 
@@ -457,6 +458,107 @@ sub test__updateUploadStatus {
 
 }
 
+sub test__updateExternalStatus {
+
+    plan ( tests => 11 );
+
+    my $newStatus  = 'test_ignore_not-real-status';
+    my $externalStatus = 'test_fake_external_status';
+    my $uploadId= -21;
+
+    my $obj = $CLASS->new( $OPT_HR );
+    $obj->{'_fastqUploadId'} = $uploadId;
+
+    my @dbSession = ({
+        'statement' => 'BEGIN WORK',
+        'results'  => [[]],
+    }, {
+        'statement'    => qr/UPDATE upload.*/msi,
+        'bound_params' => [ $newStatus, $externalStatus, $uploadId ],
+        'results'  => [[ 'rows' ], []],
+    }, {
+       'statement' => 'COMMIT',
+        'results'  => [[]],
+    });
+
+    {
+        $MOCK_DBH->{mock_clear_history} = 1;
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        $MOCK_DBH->{'mock_session'}->reset();
+        {
+            is( 1, $obj->_updateExternalStatus( $MOCK_DBH, $uploadId, $newStatus, $externalStatus ), "Updated external status." );
+        }
+    }
+
+    # Bad param: $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateExternalStatus();
+        };
+        {
+          like( $@, qr/^_updateExternalStatus\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__updateExternalStatus_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Bad param: $uploadId
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateExternalStatus( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^_updateExternalStatus\(\) missing \$uploadId parameter\./, "Error if no uploadId param");
+          is( $obj->{'error'}, 'param__updateExternalStatus_uploadId', "Errror tag if no uploadId param");
+        }
+    }
+
+    # Bad param: $newStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateExternalStatus( $MOCK_DBH, $uploadId );
+        };
+        {
+          like( $@, qr/^_updateExternalStatus\(\) missing \$newStatus parameter\./, "Error if no newStatus param");
+          is( $obj->{'error'}, 'param__updateExternalStatus_newStatus', "Errror tag if no newStatus param");
+        }
+    }
+
+    # Bad param: $externalStatus
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateExternalStatus( $MOCK_DBH, $uploadId, $newStatus );
+        };
+        {
+          like( $@, qr/^_updateExternalStatus\(\) missing \$externalStatus parameter\./, "Error if no externalStatus param");
+          is( $obj->{'error'}, 'param__updateExternalStatus_externalStatus', "Errror tag if no externalStatus param");
+        }
+    }
+
+    # Error propagation
+    {
+        $MOCK_DBH->{mock_can_connect} = 0;
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_updateExternalStatus( $MOCK_DBH, $uploadId, $newStatus, $externalStatus );
+        };
+        {
+          like( $@, qr/^Failed to update the status and external_status of upload record upload_id\=$uploadId to $newStatus with external_status $externalStatus\:/, "Error propagaion");
+          is( $obj->{'error'}, 'update_upload_and_external_status', "Error tag propagaion");
+        }
+        $MOCK_DBH->{mock_can_connect} = 1;
+
+        # AutoCommit left as 0 after failure even though transaction never really started.
+        # Doesn't matter what is provided as session, or if no session set.
+        # Can't restore or reset though ahy Mock::DBI method that I can find. Just putting it
+        # back manually after this failure seems required.
+        $MOCK_DBH->{'AutoCommit'} = 1;
+    }
+
+}
 
 sub testNew {
     plan( tests => 2 );
@@ -592,6 +694,7 @@ sub testgetTimeStamp {
     }
 
 }
+
 sub test_sayVerbose {
 	plan( tests => 5 );
 
