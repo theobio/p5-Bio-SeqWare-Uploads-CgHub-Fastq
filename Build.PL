@@ -26,6 +26,8 @@ my $builder = Module::Build->new(
         'DBI'            => 0,
         'Template'       => 0,
         'File::ShareDir' => 0,
+        'LWP::Simple'    => 0,
+        'XML::Simple'    => 0,
     },
     add_to_cleanup     => [ 'p5-Bio-SeqWare-Uploads-CgHub-Fastq-*' ],
     create_makefile_pl => 'traditional',
