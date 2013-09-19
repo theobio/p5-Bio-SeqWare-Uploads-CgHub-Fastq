@@ -4,7 +4,7 @@ use 5.014;         # Eval $@ safe to use.
 use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
-# $Carp::Verbose = 1;
+ $Carp::Verbose = 1;
 use Data::Dumper;  # Quick data structure printing
 use Time::HiRes qw( time );      # Epoch time with decimals
 use Text::Wrap qw( wrap );       # Wrapping of text in paragraphs.
@@ -19,6 +19,8 @@ use Cwd;                          # get current working directory.
 
 use DBI;
 use Template;
+use LWP::Simple;
+use XML::Simple;
 
 use Bio::SeqWare::Config;                  # Read the seqware config file
 use Bio::SeqWare::Db::Connection 0.000002; # Dbi connection, with parameters
@@ -633,38 +635,35 @@ sub doLive() {
 
     my $self = shift;
     my $dbh = shift;
-
     unless ($dbh) {
         $self->{'error'} = 'failed_live_param_doLive_dbh';
         croak ("doLive() missing \$dbh parameter.");
     }
 
-    return 1;
+    eval {
+        my $status = 'live_running';
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit-fastq_completed', $status );
+        if ($uploadHR)  {
+            my $externalStatus = $self->_live( $uploadHR );
+            if ($externalStatus eq "recheck-waiting") {
+                $status = 'submit-fastq_completed';
+            }
+            else {
+                $status = 'live_completed';
+            }
+            $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $status, $externalStatus);
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_live_' . $self->{'error'};
+        croak $error;
+    }
 
-#    eval {
-#        my $status = 'live_running';
-#        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit-fastq_completed', $status );
-#        if ($uploadHR)  {
-#            my $externalStatus = $self->_live( $uploadHR );
-#            if ($externalStatus eq "recheck-waiting") {
-#                $status = 'submit-fastq_completed';
-#            }
-#            else {
-#                $status = 'live_completed';
-#            }
-#            $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $externalStatus, $status);
-#        }
-#    };
-#    if ($@) {
-#        my $error = $@;
-#        if (! $self->{'error'}) {
-#            $self->{'error'} = 'unknown_error';
-#        }
-#        $self->{'error'} = 'failed_live_' . $self->{'error'};
-#        croak $error;
-#    }
-#
-#    return 1;
+    return 1;
 
 }
 
@@ -2563,12 +2562,52 @@ sub _live {
  
     my $self     = shift;
     my $uploadHR = shift;
+    my $cghubQueryURL = "https://cghub.ucsc.edu/cghub/metadata/";
 
+    my $externalStatus = 'recheck-waiting';
+    
     unless ( $uploadHR ) {
-        $self->{'error'} = 'param_submitFastq_uploadHR';
-        croak ("_submitFastq() missing \$uploadHR parameter.");
+        $self->{'error'} = 'param_live_uploadHR';
+        croak ("_live() missing \$uploadHR parameter.");
     }
 
+    my $analysisUuid = $uploadHR->{'cghub_analysis_id'};
+    my $cgHubXml;
+    my $cghubQuery = $cghubQueryURL . "analysisAttributes?analysis_id=" . $analysisUuid;
+
+    eval {
+        # Call out to web and get xml back as string.
+        $cgHubXml = get( $cghubQuery );
+        if (! $cgHubXml) {
+            return $externalStatus;
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        my $self->{'error'} = "external_analysis_lookup_$analysisUuid";
+        croak( "Uncaught error looking up external analysis $analysisUuid via url \"\"; error was $error")
+    }
+
+    my $xmlAsHR;
+    eval {
+       # Extract needed values from xml
+       my $xmlParser = XML::Simple->new();
+       $xmlAsHR = $xmlParser->XMLin( $cgHubXml );
+    };
+    if ($@) {
+        my $error = $@;
+        my $self->{'error'} = "xml_parse_$analysisUuid";
+        croak( "Uncaught error parsing xml retrieved for $analysisUuid via url \"\"; error was $error")
+    }
+
+    my $hitCount = $xmlAsHR->{'Hits'};
+    my $liveCount = $xmlAsHR->{'ResultSummary'}->{'state_count'}->{'live'};
+
+    if ( $hitCount == 1 && $liveCount == 1) {
+        $externalStatus = 'live'
+    }
+
+    return $externalStatus;
 }
 
 =head2 $self->sayVerbose()
