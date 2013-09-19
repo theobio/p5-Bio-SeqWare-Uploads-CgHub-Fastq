@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<ResultSet date="2013-09-18 21:23:35">
+	<Query>analysis_id:21912089-1e42-4bcc-9ad9-fe9a9b88fb09</Query>
+	<Hits>1</Hits>
+	<Result id="1">
+		<analysis_id>21912089-1e42-4bcc-9ad9-fe9a9b88fb09</analysis_id>
+		<state>live</state>
+		<reason></reason>
+		<last_modified>2013-08-30T02:33:01Z</last_modified>
+		<upload_date>2013-08-30T02:18:04Z</upload_date>
+		<published_date>2013-08-30T02:33:01Z</published_date>
+		<center_name>UNC-LCCC</center_name>
+		<study>phs000178</study>
+		<aliquot_id>ee589fc8-daf6-4da9-9708-f18a86b96b22</aliquot_id>
+		<files>
+			<file>
+				<filename>UNCID_2167520.ee589fc8-daf6-4da9-9708-f18a86b96b22.130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG.tar.gz</filename>
+				<filesize>4600317850</filesize>
+				<checksum type="MD5">53d77012055aee11b845da6f5cb9dea9</checksum>
+			</file>
+		</files>
+		<sample_accession></sample_accession>
+		<legacy_sample_id>TCGA-94-A5I4-01A-11R-A26W-07</legacy_sample_id>
+		<disease_abbr>LUSC</disease_abbr>
+		<tss_id>94</tss_id>
+		<participant_id>442c412d-6cc5-4ffd-810c-c94c8e643bd6</participant_id>
+		<sample_id>bf85a46b-d7c8-4753-a4c0-8f774dba9e06</sample_id>
+		<analyte_code>R</analyte_code>
+		<sample_type>01</sample_type>
+		<library_strategy>RNA-Seq</library_strategy>
+		<platform></platform>
+		<analysis_xml>
+<ANALYSIS_SET 
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.analysis.xsd?view=co">
+	<ANALYSIS center_name="UNC-LCCC" alias="upload 8209" analysis_date="2013-07-10T15:17:40.386" analysis_center="UNC-LCCC">
+		<TITLE>Fastq tar.gz for CgHub upload</TITLE>
+		<STUDY_REF accession="SRP000677" refcenter="NHGRI" refname="phs000178" />
+		<DESCRIPTION>UNC RNASeq fastq, one per read end, tarred and gzipped, for TCGA sample ee589fc8-daf6-4da9-9708-f18a86b96b22</DESCRIPTION>
+		<ANALYSIS_TYPE>
+			<REFERENCE_ALIGNMENT>
+				<ASSEMBLY>
+					<STANDARD short_name="unaligned" />
+				</ASSEMBLY>
+				<RUN_LABELS>
+					<RUN refcenter="UNC-LCCC" refname="UNCID:2090786" read_group_label="130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG" data_block_name="fastq"/>
+				</RUN_LABELS>
+				<SEQ_LABELS>
+					<SEQUENCE seq_label="NA" data_block_name="NA" accession="NA"/>
+                </SEQ_LABELS>
+				<PROCESSING>
+					<PIPELINE>
+						<PIPE_SECTION section_name="upload-cghub-fastq">
+							<STEP_INDEX>0</STEP_INDEX>
+							<PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
+							<PROGRAM>upload-cghub-fastq.pl</PROGRAM>
+							<VERSION>0.000005</VERSION>
+							<NOTES>zip-fastq-external; 2167520</NOTES>
+						</PIPE_SECTION>
+					</PIPELINE>
+					<DIRECTIVES>
+						<alignment_includes_unaligned_reads>true</alignment_includes_unaligned_reads>
+						<alignment_marks_duplicate_reads>false</alignment_marks_duplicate_reads>
+						<alignment_includes_failed_reads>false</alignment_includes_failed_reads>
+					</DIRECTIVES>
+				</PROCESSING>
+			</REFERENCE_ALIGNMENT>
+		</ANALYSIS_TYPE>
+		<TARGETS>
+			<TARGET sra_object_type="SAMPLE" refcenter="TCGA" refname="ee589fc8-daf6-4da9-9708-f18a86b96b22" />
+		</TARGETS>
+		<DATA_BLOCK name="fastq.tar.gz">
+			<FILES>
+				<FILE checksum="53d77012055aee11b845da6f5cb9dea9" checksum_method="MD5" filetype="fasta" filename="UNCID_2167520.ee589fc8-daf6-4da9-9708-f18a86b96b22.130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG.tar.gz" />
+			</FILES>
+		</DATA_BLOCK>
+	</ANALYSIS>
+</ANALYSIS_SET></analysis_xml>
+		<experiment_xml>
+<EXPERIMENT_SET
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.experiment.xsd?view=co">
+<EXPERIMENT center_name="UNC-LCCC" alias="UNCID:975937-2090785">
+    <STUDY_REF accession="SRP000677" refcenter="NHGRI" refname="phs000178"/>
+    <DESIGN>
+        <DESIGN_DESCRIPTION>TCGA RNA-Seq Paired-End Experiment</DESIGN_DESCRIPTION>
+        <SAMPLE_DESCRIPTOR refcenter="TCGA" refname="ee589fc8-daf6-4da9-9708-f18a86b96b22"/>
+        <LIBRARY_DESCRIPTOR>
+            <LIBRARY_NAME>Illumina TruSeq for ee589fc8-daf6-4da9-9708-f18a86b96b22</LIBRARY_NAME>
+            <LIBRARY_STRATEGY>RNA-Seq</LIBRARY_STRATEGY>
+            <LIBRARY_SOURCE>GENOMIC</LIBRARY_SOURCE>
+            <LIBRARY_SELECTION>RANDOM</LIBRARY_SELECTION>
+            <LIBRARY_LAYOUT>
+                <PAIRED/>
+            </LIBRARY_LAYOUT>
+        </LIBRARY_DESCRIPTOR>
+        <SPOT_DESCRIPTOR>
+            <SPOT_DECODE_SPEC>
+                <READ_SPEC>
+                    <READ_INDEX>0</READ_INDEX>
+                    <READ_CLASS>Application Read</READ_CLASS>
+                    <READ_TYPE>Forward</READ_TYPE>
+                    <BASE_COORD>1</BASE_COORD>
+                </READ_SPEC>
+
+                <READ_SPEC>
+                    <READ_INDEX>1</READ_INDEX>
+                    <READ_CLASS>Application Read</READ_CLASS>
+                    <READ_TYPE>Reverse</READ_TYPE>
+                    <BASE_COORD>49</BASE_COORD>
+                </READ_SPEC>
+
+            </SPOT_DECODE_SPEC>
+        </SPOT_DESCRIPTOR>
+    </DESIGN>
+    <PLATFORM>
+        <ILLUMINA>
+            <INSTRUMENT_MODEL>Illumina HiSeq 2000</INSTRUMENT_MODEL>
+        </ILLUMINA>
+    </PLATFORM>
+    <PROCESSING>
+    	<PIPELINE>
+       	   <PIPE_SECTION section_name="BASE_CALLS">
+            <STEP_INDEX>N/A</STEP_INDEX>
+            <PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
+            <PROGRAM>OLB</PROGRAM>
+            <VERSION>1.9.0</VERSION>
+            <NOTES>
+                SEQUENCE_SPACE=Base Space
+            </NOTES>
+           </PIPE_SECTION>
+           <PIPE_SECTION section_name="QUALITY_SCORES">
+            <STEP_INDEX>N/A</STEP_INDEX>
+            <PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
+            <PROGRAM>OLB</PROGRAM>
+            <VERSION>1.9.0</VERSION>
+            <NOTES>
+                NUMBER_OF_LEVELS=80
+                MULTIPLIER=1
+                qtype=foo
+            </NOTES>
+           </PIPE_SECTION>
+        </PIPELINE>
+        <DIRECTIVES></DIRECTIVES>
+    </PROCESSING>
+</EXPERIMENT>
+</EXPERIMENT_SET>
+</experiment_xml>
+		<run_xml>
+<RUN_SET
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+  xsi:noNamespaceSchemaLocation="http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.run.xsd?view=co">
+<RUN center_name="UNC-LCCC" alias="UNCID:2090786">
+    <EXPERIMENT_REF refcenter="UNC-LCCC" refname="UNCID:975937-2090785"/>
+</RUN>
+</RUN_SET>
+</run_xml>
+		<analysis_data_uri>https://cghub.ucsc.edu/cghub/data/analysis/download/21912089-1e42-4bcc-9ad9-fe9a9b88fb09</analysis_data_uri>
+	</Result>
+	<ResultSummary>
+		<downloadable_file_count>1</downloadable_file_count>
+		<downloadable_file_size units="GB">4.28</downloadable_file_size>
+		<state_count>
+			<live>1</live>
+		</state_count>
+	</ResultSummary>
+</ResultSet>

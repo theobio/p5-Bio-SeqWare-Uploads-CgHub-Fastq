@@ -1,0 +1,223 @@
+$VAR1 = {
+	'Query' => 'analysis_id:21912089-1e42-4bcc-9ad9-fe9a9b88fb09',
+	'Hits' => '1',
+	'Result' => {
+		'study' => 'phs000178',
+		'upload_date' => '2013-08-30T02:18:04Z',
+		'analysis_id' => '21912089-1e42-4bcc-9ad9-fe9a9b88fb09',
+		'id' => '1',
+		'run_xml' => {
+			 'RUN_SET' => {
+				'xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance',
+				'xsi:noNamespaceSchemaLocation' => 'http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.run.xsd?view=co',
+				'RUN' => {
+					 'EXPERIMENT_REF' => {
+							 'refcenter' => 'UNC-LCCC',
+							 'refname' => 'UNCID:975937-2090785'
+							 },
+					 'alias' => 'UNCID:2090786',
+					 'center_name' => 'UNC-LCCC'
+					 }
+				}
+			 },
+		'sample_id' => 'bf85a46b-d7c8-4753-a4c0-8f774dba9e06',
+		'state' => 'live',
+		'center_name' => 'UNC-LCCC',
+		'analyte_code' => 'R',
+		'participant_id' => '442c412d-6cc5-4ffd-810c-c94c8e643bd6',
+		'experiment_xml' => {
+				'EXPERIMENT_SET' => {
+						'xsi:noNamespaceSchemaLocation' => 'http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.experiment.xsd?view=co',
+						'EXPERIMENT' => {
+							'DESIGN' => {
+									'SPOT_DESCRIPTOR' => {
+											 'SPOT_DECODE_SPEC' => {
+													 'READ_SPEC' => [
+														{
+															'READ_INDEX' => '0',
+															'READ_TYPE' => 'Forward',
+															'READ_CLASS' => 'Application Read',
+															'BASE_COORD' => '1'
+														},
+														{
+															'READ_INDEX' => '1',
+															'READ_TYPE' => 'Reverse',
+															'READ_CLASS' => 'Application Read',
+															'BASE_COORD' => '49'
+														}
+														]
+													 }
+										 },
+									'DESIGN_DESCRIPTION' => 'TCGA RNA-Seq Paired-End Experiment',
+									'LIBRARY_DESCRIPTOR' => {
+											'LIBRARY_NAME' => 'Illumina TruSeq for ee589fc8-daf6-4da9-9708-f18a86b96b22',
+											'LIBRARY_SOURCE' => 'GENOMIC',
+											'LIBRARY_STRATEGY' => 'RNA-Seq',
+											'LIBRARY_SELECTION' => 'RANDOM',
+											'LIBRARY_LAYOUT' => {
+													'PAIRED' => {}
+													}
+											},
+									'SAMPLE_DESCRIPTOR' => {
+											 'refname' => 'ee589fc8-daf6-4da9-9708-f18a86b96b22',
+											 'refcenter' => 'TCGA'
+											 }
+								},
+							'center_name' => 'UNC-LCCC',
+							'alias' => 'UNCID:975937-2090785',
+							'STUDY_REF' => {
+									 'accession' => 'SRP000677',
+									 'refname' => 'phs000178',
+									 'refcenter' => 'NHGRI'
+									 },
+							'PLATFORM' => {
+									'ILLUMINA' => {
+										'INSTRUMENT_MODEL' => 'Illumina HiSeq 2000'
+										}
+									},
+							'PROCESSING' => {
+									'PIPELINE' => {
+										'PIPE_SECTION' => [
+												{
+												'PROGRAM' => 'OLB',
+												'STEP_INDEX' => 'N/A',
+												'NOTES' => '
+	SEQUENCE_SPACE=Base Space
+	',
+												'VERSION' => '1.9.0',
+												'section_name' => 'BASE_CALLS',
+												'PREV_STEP_INDEX' => 'NIL'
+												},
+												{
+												'PROGRAM' => 'OLB',
+												'NOTES' => '
+	NUMBER_OF_LEVELS=80
+	MULTIPLIER=1
+	qtype=foo
+	',
+												'STEP_INDEX' => 'N/A',
+												'PREV_STEP_INDEX' => 'NIL',
+												'section_name' => 'QUALITY_SCORES',
+												'VERSION' => '1.9.0'
+												}
+												]
+										},
+									'DIRECTIVES' => {}
+									}
+							},
+						'xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance'
+						}
+				},
+		'reason' => {},
+		'files' => {
+			 'file' => {
+				 'checksum' => {
+					 'type' => 'MD5',
+					 'content' => '53d77012055aee11b845da6f5cb9dea9'
+					 },
+				 'filename' => 'UNCID_2167520.ee589fc8-daf6-4da9-9708-f18a86b96b22.130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG.tar.gz',
+				 'filesize' => '4600317850'
+				 }
+			 },
+		'analysis_xml' => {
+				'ANALYSIS_SET' => {
+					'xsi:noNamespaceSchemaLocation' => 'http://www.ncbi.nlm.nih.gov/viewvc/v1/trunk/sra/doc/SRA_1-5/SRA.analysis.xsd?view=co',
+					'ANALYSIS' => {
+							'DATA_BLOCK' => {
+								'name' => 'fastq.tar.gz',
+								'FILES' => {
+									 'FILE' => {
+										 'filetype' => 'fasta',
+										 'checksum_method' => 'MD5',
+										 'filename' => 'UNCID_2167520.ee589fc8-daf6-4da9-9708-f18a86b96b22.130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG.tar.gz',
+										 'checksum' => '53d77012055aee11b845da6f5cb9dea9'
+										 }
+									 }
+								},
+							'TARGETS' => {
+								 'TARGET' => {
+									 'refcenter' => 'TCGA',
+									 'sra_object_type' => 'SAMPLE',
+									 'refname' => 'ee589fc8-daf6-4da9-9708-f18a86b96b22'
+									 }
+								 },
+							'center_name' => 'UNC-LCCC',
+							'analysis_center' => 'UNC-LCCC',
+							'DESCRIPTION' => 'UNC RNASeq fastq, one per read end, tarred and gzipped, for TCGA sample ee589fc8-daf6-4da9-9708-f18a86b96b22',
+							'TITLE' => 'Fastq tar.gz for CgHub upload',
+							'alias' => 'upload 8209',
+							'analysis_date' => '2013-07-10T15:17:40.386',
+							'STUDY_REF' => {
+								 'refcenter' => 'NHGRI',
+								 'refname' => 'phs000178',
+								 'accession' => 'SRP000677'
+								 },
+							'ANALYSIS_TYPE' => {
+									 'REFERENCE_ALIGNMENT' => {
+											'SEQ_LABELS' => {
+													'SEQUENCE' => {
+														'seq_label' => 'NA',
+														'data_block_name' => 'NA',
+														'accession' => 'NA'
+														}
+													},
+											'RUN_LABELS' => {
+													'RUN' => {
+														 'read_group_label' => '130627_UNC15-SN850_0315_AC25WHACXX_5_GAGTGG',
+														 'refcenter' => 'UNC-LCCC',
+														 'refname' => 'UNCID:2090786',
+														 'data_block_name' => 'fastq'
+													 }
+													},
+											'PROCESSING' => {
+													'PIPELINE' => {
+														'PIPE_SECTION' => {
+																'PREV_STEP_INDEX' => 'NIL',
+																'VERSION' => '0.000005',
+																'section_name' => 'upload-cghub-fastq',
+																'NOTES' => 'zip-fastq-external; 2167520',
+																'STEP_INDEX' => '0',
+																'PROGRAM' => 'upload-cghub-fastq.pl'
+																}
+														},
+													'DIRECTIVES' => {
+														'alignment_includes_unaligned_reads' => 'true',
+														'alignment_marks_duplicate_reads' => 'false',
+														'alignment_includes_failed_reads' => 'false'
+														}
+													},
+											'ASSEMBLY' => {
+													'STANDARD' => {
+														'short_name' => 'unaligned'
+														}
+												}
+											}
+								 }
+							},
+					'xmlns:xsi' => 'http://www.w3.org/2001/XMLSchema-instance'
+					}
+			},
+		'analysis_data_uri' => 'https://cghub.ucsc.edu/cghub/data/analysis/download/21912089-1e42-4bcc-9ad9-fe9a9b88fb09',
+		'library_strategy' => 'RNA-Seq',
+		'disease_abbr' => 'LUSC',
+		'aliquot_id' => 'ee589fc8-daf6-4da9-9708-f18a86b96b22',
+		'published_date' => '2013-08-30T02:33:01Z',
+		'platform' => {},
+		'last_modified' => '2013-08-30T02:33:01Z',
+		'sample_type' => '01',
+		'sample_accession' => {},
+		'tss_id' => '94',
+		'legacy_sample_id' => 'TCGA-94-A5I4-01A-11R-A26W-07'
+		},
+	'date' => '2013-09-18 22:27:48',
+	'ResultSummary' => {
+		 'downloadable_file_size' => {
+					 'content' => '4.28',
+					 'units' => 'GB'
+					 },
+		 'state_count' => {
+				'live' => '1'
+				},
+		 'downloadable_file_count' => '1'
+		 }
+};
