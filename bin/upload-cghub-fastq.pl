@@ -78,6 +78,14 @@ upload-cghub-fastq [options]
         --xmlSchema        SRA schema name, sub-dir for templates
         --templateBaseDir  Root dir for templates, contains xmlSchema dirs
 
+        # Sample selection
+        --sampleId               sample.sample_id
+        --sampleTitle|sample     The TCGA sample name
+        --sampleAccession=i'     The seqware sample accession id
+        --sampleAlias=s'         The pipe id for the sample
+        --sampleType|tumorType   The disease type abbreviation
+        --sampleUuid=s'          The TCGA uuid for the sample
+
         # Validation rules
         --minFastqSize  Error if fastq size < this, in bytes
         --rerun         Deletes output file on collision instead of failing

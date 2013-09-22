@@ -6,6 +6,7 @@ use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
 # $Carp::Verbose = 1;
 use Data::Dumper;  # Quick data structure printing
+
 use Time::HiRes qw( time );      # Epoch time with decimals
 use Text::Wrap qw( wrap );       # Wrapping of text in paragraphs.
 $Text::Wrap::columns = 132;      #    Wrap at column 132
@@ -1919,7 +1920,7 @@ sub _getTemplateData {
         }
         for my $key (sort keys %$data) {
             if (! defined $data->{$key} || length $data->{$key} == 0) {
-                $self->{'error'} = 'bad_tempalte_datq';
+                $self->{'error'} = "missing_template_data_$key";
                 croak("No value obtained for template data element \'$key\'\n");
             }
         }
