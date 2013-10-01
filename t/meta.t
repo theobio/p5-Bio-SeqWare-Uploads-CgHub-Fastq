@@ -170,6 +170,7 @@ sub test_doMeta {
             is(1, $obj->doMeta( $MOCK_DBH ), "SmokeTest doMeta" );
         }
         $mock_readpipe->{'mock'} = 0;
+        $mock_readpipe->{'ret'} = undef;
     }
 
     # Bad param: $dbh
@@ -292,8 +293,10 @@ sub test__getTemplateData {
             is_deeply($got, $want, "Return value correct");
             is( $obj->{'_fastqUploadDir'}, $uploadDir, "Set upload directory");
         }
+        $mock_readpipe->{'ret'} = undef;
         $mock_readpipe->{'mock'} = 0;
     }
+
     {
         my $realFile = File::Spec->catfile( $TEMP_DIR, "single_end.fastq");
         {
@@ -315,6 +318,7 @@ sub test__getTemplateData {
 
         }
         $dbSession[0]->{'results'}->[1]->[5] = "$filePath";
+        $mock_readpipe->{'ret'} = undef;
         $mock_readpipe->{'mock'} = 0;
     }
     {
@@ -329,9 +333,10 @@ sub test__getTemplateData {
         };
         {
             like ($@, qr/No value obtained for template data element \'file_path_base\'/, "fatal with empty file_path_base.");
-            is ($obj->{'error'}, "bad_tempalte_datq", "error type for missing data");
+            is ($obj->{'error'}, "missing_template_data_file_path_base", "error type for missing data");
         }
         $dbSession[0]->{'results'}->[1]->[5] = $filePath;
+        $mock_readpipe->{'ret'} = undef;
         $mock_readpipe->{'mock'} = 0;
     }
     {
@@ -346,9 +351,10 @@ sub test__getTemplateData {
         };
         {
             like ($@, qr/No value obtained for template data element \'file_md5sum\'/, "fatal with undefined md5Sum.");
-            is ($obj->{'error'}, "bad_tempalte_datq", "error type for empty data");
+            is ($obj->{'error'}, "missing_template_data_file_md5sum", "error type for empty data");
         }
         $dbSession[0]->{'results'}->[1]->[4] = $fileMd5sum;
+        $mock_readpipe->{'ret'} = undef;
         $mock_readpipe->{'mock'} = 0;
     }
 
@@ -380,7 +386,7 @@ sub test__getTemplateData {
 }
 
 sub test__makeFileFromTemplate {
-    plan( tests => 25 );
+    plan( tests => 27 );
 
     # Chosen to match actual xml data files
     my $uploadId       = 7851;
@@ -439,6 +445,7 @@ sub test__makeFileFromTemplate {
                 files_eq_or_diff( $analysisXml, $sampleFileName, "analysis.xml file generated correctly." );
             }
         }
+
     }
 
     # Tests for run.xml
@@ -501,7 +508,7 @@ sub test__makeFileFromTemplate {
         }
     }
 
-    # Tests for parameters
+    # Tests throws correct errors - bad parameters
     {
         # Bad param: $dataHR
         {
@@ -528,21 +535,37 @@ sub test__makeFileFromTemplate {
         }
     }
 
+    # Tests throws correct errors - bad files
+    # Default template file name + missing file
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_fastqUploadDir'} = "$TEMP_DIR";
+        $obj->{'verbose'} = 1;
+        {
+            my $expectRE = qr/Using default template file name\: .*analysis\.xml\.template/s;
+            eval {
+                $obj->_makeFileFromTemplate( $expectData, "analysis.xml" );
+            };
+            like( $@, qr/^File not found\: .*analysis\.xml\.template\./, "Error message if no template file");
+            is( $obj->{'error'}, 'param__makeFileFromTemplate_templateFile', "Errror tag if no templateFile param");
+        }
+    }
+
 }
 
 sub test__getTemplateDataReadLength {
-    plan( tests => 5 );
+    plan( tests => 11 );
 
     my $sampleId = -19;
 
-    my @readLengthDbSession = ({
-        'statement'    => qr/SELECT f\.file_path.*/msi,
-        'bound_params' => [ $sampleId ],
-        'results'  => [ ['file_path'], ["t/Data/toy.bam"], ]
-    });
-
     # Good test
     {
+        my @readLengthDbSession = ({
+            'statement'    => qr/SELECT f\.file_path.*/msi,
+            'bound_params' => [ $sampleId ],
+            'results'  => [ ['file_path'], ["t/Data/toy.bam"], ]
+        });
+
         {
             my $obj = $CLASS->new( $OPT_HR );
             $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "ok_getTemplateDataReadLength", @readLengthDbSession );
@@ -554,7 +577,78 @@ sub test__getTemplateDataReadLength {
                 my $testName = "smokeTest for _getTemplateDataReadLength";
                 is( $got, $want, $testName);
             }
+            $mock_readpipe->{'ret'} = undef;
             $mock_readpipe->{'mock'} = 1;
+        }
+
+    }
+
+    # Bad db return - No file path found
+    {
+        my @badReadLengthDbSession = ({
+            'statement'    => qr/SELECT f\.file_path.*/msi,
+            'bound_params' => [ $sampleId ],
+            'results'  => [[]]
+        });
+
+        {
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "bad_getTemplateDataReadLength", @badReadLengthDbSession );
+            eval {
+                $obj->_getTemplateDataReadLength( $MOCK_DBH, $sampleId );
+            };
+            {
+                my $testName = "Error if no bam found";
+                my $gotError = $@;
+                my $errorRE = qr/Can\'t retrieve bam file path for read end counting/;
+                like( $gotError, $errorRE, $testName);
+                is( $obj->{'error'}, 'db_get_bam', "Errror tag if no bam found");
+            }
+        }
+
+    }
+
+    # Bad samtools runs
+    {
+        my @goodReadLengthDbSession = ({
+            'statement'    => qr/SELECT f\.file_path.*/msi,
+            'bound_params' => [ $sampleId ],
+            'results'  => [ ['file_path'], ["t/Data/toy.bam"], ]
+        });
+
+        {
+            $mock_readpipe->{'mock'} = 1;
+            $mock_readpipe->{'exit'} = 27;
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "good_getTemplateDataReadLength", @goodReadLengthDbSession );
+            eval {
+                $obj->_getTemplateDataReadLength( $MOCK_DBH, $sampleId );
+            };
+            my $error = $@;
+    	    {
+                my $want = qr/Can\'t determine bam max read length\: Error getting read length. exit=27; /;
+                my $got = $error;
+                like( $got, $want, "Error message if samtools fails");
+                is( $obj->{'error'}, "samtools-exec-error-$?", "Error tag if samtools fails");
+    	    }
+            $mock_readpipe->{'mock'} = 0;
+            $mock_readpipe->{'exit'} = 0;
+        }
+        {
+            $mock_readpipe->{'mock'} = 1;
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "good_getTemplateDataReadLength", @goodReadLengthDbSession );
+            eval {
+                $obj->_getTemplateDataReadLength( $MOCK_DBH, $sampleId );
+            };
+            my $error = $@;
+    	    {
+                my $want = qr/Can\'t determine bam max read length\: Validation error\: neither error nor result generated\. Strange\./;
+                my $got = $error;
+                like( $got, $want, "Error message if samtools returns nothing");
+                is( $obj->{'error'}, "samtools-exec-no-output", "Error tag if samtools returns nothing");
+    	    }
+            $mock_readpipe->{'mock'} = 0;
         }
 
     }
@@ -610,6 +704,26 @@ sub test__getTemplateDataReadEnds {
                 my $got = $obj->_getTemplateDataReadEnds( $MOCK_DBH, $experimentId );
                 my $testName = "smokeTest for _getTemplateDataReadEnds";
                 is( $got, $want, $testName);
+            }
+        }
+
+    }
+
+    # Bad read end test
+    {
+        my $readEnds = 0;
+        my @badReadEndsDbSession = ({
+            'statement'    => qr/SELECT count\(\*\) as read_ends.*/msi,
+            'bound_params' => [ $experimentId ],
+            'results'  => [ ['read_ends'], [$readEnds], ]
+        });
+        {
+            my $obj = $CLASS->new( $OPT_HR );
+            $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( "bad_getTemplateDataReadEnds", @badReadEndsDbSession );
+            eval {
+                $obj->_getTemplateDataReadEnds( $MOCK_DBH, $experimentId );
+                like( $@, qr/Can\'t retrieve count of ends\: Found 0 read ends, expected 1 or 2../, "Error if bad End count");
+                is( $obj->{'error'}, 'db_query_ends', "Errror tag if bad end count");
             }
         }
 

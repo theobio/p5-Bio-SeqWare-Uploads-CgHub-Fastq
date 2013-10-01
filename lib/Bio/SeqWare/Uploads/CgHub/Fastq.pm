@@ -4,6 +4,7 @@ use 5.014;         # Eval $@ safe to use.
 use strict;        # Don't allow unsafe perl constructs.
 use warnings;      # Enable all optional warnings.
 use Carp;          # Base the locations of reported errors on caller's code.
+
 # $Carp::Verbose = 1;
 use Data::Dumper;  # Quick data structure printing
 
@@ -2150,6 +2151,7 @@ sub _makeFileFromTemplate {
 
     unless ($templateFile) {
         $templateFile = $outFile . ".template";
+        $self->sayVerbose( "Using default template file name: $templateFile\n" );
     }
 
     # Ensure have absolute paths for outFile and templateFile
@@ -2170,6 +2172,11 @@ sub _makeFileFromTemplate {
             $self->{'xmlSchema' },
             $templateFile
         );
+    }
+
+    unless (-f $templateAbsFilePath) {
+        $self->{'error'} = 'param__makeFileFromTemplate_templateFile';
+        croak ("File not found: $templateAbsFilePath.");
     }
 
     $self->sayVerbose( "TEMPLATE: $templateAbsFilePath\n"

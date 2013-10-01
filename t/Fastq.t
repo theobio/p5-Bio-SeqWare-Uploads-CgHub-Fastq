@@ -11,7 +11,7 @@ use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
 use Test::Output;         # Tests what appears on stdout.
-use Test::More 'tests' => 1 + 10;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 11;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
@@ -68,11 +68,12 @@ my $MOCK_DBH = DBI->connect(
 #
 
 # Class methods
-subtest( 'new()'             => \&testNew              );
-subtest( 'new(BAD)'          => \&testNewBad           );
-subtest( 'getFileBaseName()' => \&test_getFileBaseName );
-subtest( 'getUuid()'         => \&test_getUuid         );
-subtest( 'getTimeStamp()'    => \&testgetTimeStamp );
+subtest( 'new()'               => \&testNew              );
+subtest( 'new(BAD)'            => \&testNewBad           );
+subtest( 'getFileBaseName()'   => \&test_getFileBaseName );
+subtest( 'getUuid()'           => \&test_getUuid         );
+subtest( 'getTimeStamp()'      => \&test_getTimeStamp );
+subtest( 'reformatTimeStamp()' => \&test_reformatTimeStamp );
 
 # Object methods
 subtest( 'getAll()'       => \&testGetAll       );
@@ -581,7 +582,7 @@ sub test_getUuid {
     }
 }
 
-sub testgetTimeStamp {
+sub test_getTimeStamp {
 
     plan( tests => 1 );
 
@@ -592,6 +593,37 @@ sub testgetTimeStamp {
     }
 
 }
+
+sub test_reformatTimeStamp {
+
+    plan( tests => 3 );
+
+    {
+        my $testDesc = "timestamp reformated for postgress.";
+        my $timeStamp = "2013-09-08 15:16:17";
+        my $want = "2013-09-08T15:16:17";
+        my $got = $CLASS->reformatTimeStamp( $timeStamp );
+        is( $got, $want, $testDesc );
+    }
+    {
+        my $testDesc = "hig-res timestamp reformated for postgress.";
+        my $timeStamp = "2013-09-08 15:16:17.2345";
+        my $want = "2013-09-08T15:16:17.2345";
+        my $got = $CLASS->reformatTimeStamp( $timeStamp );
+        is( $got, $want, $testDesc );
+    }
+    {
+        my $testDesc = "Bad parameter (timestamp not formatted correctly)";
+        my $badTimeStamp = "2013-09-08_15:16:17.2345";
+        eval {
+            $CLASS->reformatTimeStamp( $badTimeStamp );
+        };
+        my $errorRE = qr/Incorectly formatted time stamp/;
+        like( $@, $errorRE, $testDesc );
+    }
+
+}
+
 sub test_sayVerbose {
 	plan( tests => 5 );
 
