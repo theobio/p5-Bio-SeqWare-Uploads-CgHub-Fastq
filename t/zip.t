@@ -1151,7 +1151,7 @@ sub test__zip {
 
 sub test__insertFileRecord {
 
-    plan ( tests => 4 );
+    plan ( tests => 6 );
 
     my $fileId = -6;
 
@@ -1182,16 +1182,36 @@ sub test__insertFileRecord {
         }
     }
 
+    # Db insert failure
+    {
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'BadInsertFileRec', ({
+            'statement'    => qr/INSERT INTO file.*/msi,
+            'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
+            'results'  => [ [] ],
+        } ));
+    
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
+        $obj->{'_zipFileMd5'} = $ZIP_FILE_FAKE_MD5;
+        eval {
+             $obj->_insertFileRecord( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Insert of file record appeared to fail/, "Error if insert fails");
+          is( $obj->{'error'}, 'db_insert_file_returning', "Errror tag if insert fails");
+        }
+    }
+
 }
 
 sub test__insertProcessingFileRecord {
-    plan ( tests => 3 );
+    plan ( tests => 7 );
 
     my $fileId = -6;
     my $processingId1 = -20;
     my $processingId2 = -2020;
 
-    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertProcessingFileRec', ({
         'statement'    => qr/INSERT INTO processing_files.*/msi,
         'bound_params' => [ $processingId1, $fileId ],
         'results'  => [ [ 'rows' ], [] ],
@@ -1222,10 +1242,55 @@ sub test__insertProcessingFileRecord {
         }
     }
 
+    # Bad insert 2
+    {
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'badSecondInsert', ({
+            'statement'    => qr/INSERT INTO processing_files.*/msi,
+            'bound_params' => [ $processingId1, $fileId ],
+            'results'  => [ [ 'rows' ], [] ],
+        }, {
+            'statement'    => qr/INSERT INTO processing_files.*/msi,
+            'bound_params' => [ $processingId2, $fileId ],
+            'results'  => [ [] ],
+        } ));
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_zipFileId'} = "-6";
+        $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
+        $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
+        eval {
+             $obj->_insertProcessingFileRecords( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Processing files insert failed\: failed to insert processing_files record for fastq 2/, "Error if failed processing file 2 insert");
+          is( $obj->{'error'}, 'insert_processsing_files_2', "Errror tag if failed processing file 2 insert.");
+        }
+    }
+
+    # Bad insert 1
+    {
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'badFirstInsert', ({
+            'statement'    => qr/INSERT INTO processing_files.*/msi,
+            'bound_params' => [ $processingId1, $fileId ],
+            'results'  => [ [] ],
+        } ));
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_zipFileId'} = "-6";
+        $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
+        $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
+        eval {
+             $obj->_insertProcessingFileRecords( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Processing files insert failed\: failed to insert processing_files record for fastq 1/, "Error if failed processing file 1 insert");
+          is( $obj->{'error'}, 'insert_processsing_files_1', "Errror tag if failed processing file 1 insert.");
+        }
+    }
+
 }
 
 sub test__insertFile {
-    plan ( tests => 3 );
+ 
+    plan ( tests => 5 );
 
     my $fileId = -6;
     my $processingId1 = -20;
@@ -1273,10 +1338,47 @@ sub test__insertFile {
         }
     }
 
+    # Error, (triggered by underlying bad processing result 2)
+    {
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'BadinsertFileRec', ({
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/INSERT INTO file.*/msi,
+            'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
+            'results'  => [[ 'file_id' ], [ $fileId ]],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId1, $fileId ],
+            'results'  => [[ 'rows' ], []],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId2, $fileId ],
+            'results'  => [ [] ],
+        }, {
+           'statement' => 'ROLLBACK',
+            'results'  => [[]],
+        } ));
+    
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
+        $obj->{'_zipFileMd5'} = $ZIP_FILE_FAKE_MD5;
+        $obj->{'_fastqs'}->[0]->{'processingId'} = $processingId1;
+        $obj->{'_fastqs'}->[1]->{'processingId'} = $processingId2;
+        
+        eval {
+             $obj->_insertFile( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Processing files insert failed\: failed to insert processing_files record for fastq 2/, "Error if failed processing file 2 insert");
+          is( $obj->{'error'}, 'insert_processsing_files_2', "Errror tag if failed processing file 2 insert.");
+        }
+    }
+
 }
 
 sub test__insertUploadFileRecord {
-    plan ( tests => 3 );
+    plan ( tests => 5 );
 
     my $fileId = -6;
     my $uploadId = -20;
@@ -1310,6 +1412,33 @@ sub test__insertUploadFileRecord {
         {
           like( $@, qr/^_insertUploadFileRecord\(\) missing \$dbh parameter\./, "Error if no dbh param");
           is( $obj->{'error'}, 'param__insertUploadFileRecord_dbh', "Errror tag if no dbh param");
+        }
+    }
+
+    # Update failed
+    {
+         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'badInsertFileRec', ({
+         'statement' => 'BEGIN WORK',
+         'results'  => [[]],
+         }, {
+             'statement'    => qr/INSERT INTO upload_file.*/msi,
+             'bound_params' => [ $uploadId, $fileId ],
+             'results'  => [[]],
+         }, {
+             'statement' => 'ROLLBACK',
+             'results'  => [[]],
+         } ));
+
+        my $obj = $CLASS->new( $OPT_HR );
+        $obj->{'_zipFileId'} = $fileId;
+        $obj->{'_fastqUploadId'} = $uploadId;
+
+        eval {
+             $obj->_insertUploadFileRecord( $MOCK_DBH );
+        };
+        {
+          like( $@, qr/^Upload_file insert failed\: failed to insert upload_file record/, "Error if upload fails");
+          is( $obj->{'error'}, 'insert_upload_file', "Errror tag if insert upload failed");
         }
     }
 }
