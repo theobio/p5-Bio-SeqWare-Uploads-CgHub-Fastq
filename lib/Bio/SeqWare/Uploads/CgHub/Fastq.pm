@@ -631,6 +631,20 @@ sub doSubmitFastq() {
 
     $obj->doLive( $dbh );
 
+Sets the external status for an upload record. Because there may be a delay
+between submitting a file and cghub setting it live, I need to allow multiple
+checks for live status. That requires states of "not checked", "checked but
+not live yet", "bad", and "done" as states.
+
+  "not checked"           => status         = 'submit-fastq_completed';
+                             externalstatus = null
+  "checked, not live yet" => status         = 'live_waiting';
+                             externalstatus = 'recheck-waiting'
+  "bad"                   => status         = 'live_failed';
+                             externalstatus = 'recheck-waiting'
+  "live"                  => status         = 'live_completed';
+                             externalstatus = 'live'
+
 =cut
 
 sub doLive() {
@@ -643,18 +657,18 @@ sub doLive() {
     }
 
     eval {
-        my $status = 'live_running';
-        my $uploadHR = $self->_changeUploadRunStage( $dbh, 'submit-fastq_completed', $status );
+        # Try new files first - rechecks will be done manually for now.
+        my $newStatus = 'live_running';
+        my $oldStatus = 'submit-fastq_completed';
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, $oldStatus, $newStatus );
+        # If found one, change its value
         if ($uploadHR)  {
             my $externalStatus = $self->_live( $uploadHR );
-            if ($externalStatus eq "recheck-waiting") {
-                $status = 'submit-fastq_completed';
-            }
-            else {
-                $status = 'live_completed';
-            }
-            $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $status, $externalStatus);
+            $newStatus = $self->_statusFromExternal( $externalStatus );
+            $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $newStatus, $externalStatus);
         }
+
+        # If don't find one, fine.
     };
     if ($@) {
         my $error = $@;
@@ -2570,55 +2584,190 @@ sub _live {
  
     my $self     = shift;
     my $uploadHR = shift;
-    my $cghubQueryURL = "https://cghub.ucsc.edu/cghub/metadata/";
 
-    my $externalStatus = 'recheck-waiting';
-    
     unless ( $uploadHR ) {
         $self->{'error'} = 'param_live_uploadHR';
         croak ("_live() missing \$uploadHR parameter.");
     }
 
-    my $analysisUuid = $uploadHR->{'cghub_analysis_id'};
-    my $cgHubXml;
-    my $cghubQuery = $cghubQueryURL . "analysisAttributes?analysis_id=" . $analysisUuid;
+    my $cghubQueryURL = $self->_makeCghubAnalysisQueryUrl( $uploadHR );
+    my $cgHubXml      = $self->_pullXmlFromUrl( $cghubQueryURL );
+    if (! $cgHubXml) {
+        return 'recheck-waiting';
+    }
+    my $xmlAsHR = $self->_xmlToHashRef( $cgHubXml );
+    my $externalStatus = $self->_evaluateExternalStatus( $xmlAsHR );
+    return $externalStatus;
+}
 
+=head2 _makeCghubAnalysisQueryUrl
+
+    my $queryUrl = $self->_makeCghubAnalysisQueryUrl( $uploadHR );
+
+Generate the URL query string for retrieving the analysis xml data from CGHUB.
+
+=cut
+
+sub _makeCghubAnalysisQueryUrl {
+
+    my $self = shift;
+    my $uploadHR = shift;
+
+    unless ( $uploadHR ) {
+        $self->{'error'} = 'param__makeCghubAnalysisQueryUrl_uploadHR';
+        croak ("_makeCghubAnalysisQueryUrl() missing \$uploadHR parameter.");
+    }
+
+    my $CGHUB_QUERY_URL = "https://cghub.ucsc.edu/cghub/metadata/";
+
+    my $analysisUuid = $uploadHR->{'cghub_analysis_id'};
+    my $queryUrl = $CGHUB_QUERY_URL . "analysisAttributes?analysis_id=" . $analysisUuid;
+
+    return $queryUrl;
+
+}
+
+=head2 _pullXmlFromUrl
+
+    my $xmlString = $self->_pullAnalysisXML( $queryUrl );
+
+Call out to web and get xml for a given URL back as string.
+
+=cut
+
+sub _pullXmlFromUrl {
+
+    my $self = shift;
+    my $queryUrl = shift;
+
+    unless ( $queryUrl ) {
+        $self->{'error'} = 'param__pullXmlFromUrl_queryUrl';
+        croak ("_pullXmlFromUrl() missing \$queryUrl parameter.");
+    }
+
+    # Get the meta data from cgHub as a string
+    my $cgHubXml;
     eval {
-        # Call out to web and get xml back as string.
-        $cgHubXml = get( $cghubQuery );
-        if (! $cgHubXml) {
-            return $externalStatus;
-        }
+        $cgHubXml = get( $queryUrl );
     };
+    # Shouldn't fail (always returns undefined); this is jus for saftey.
     if ($@) {
         my $error = $@;
-        my $self->{'error'} = "external_analysis_lookup_$analysisUuid";
-        croak( "Uncaught error looking up external analysis $analysisUuid via url \"\"; error was $error")
+        $self->{'error'} = "external_analysis_lookup";
+        croak( "Uncaught error looking up analysis xml via url \"$queryUrl\"; error was $error"
+        );
+    }
+
+    return $cgHubXml
+}
+
+=head2 _xmlToHashRef
+
+    my xmlHR = $self->_xmlToHashRef( $analysisXML );
+
+Convert the xml to a hash-ref.
+
+=cut
+
+sub _xmlToHashRef {
+
+    my $self = shift;
+    my $cgHubXml = shift;
+
+    unless ( $cgHubXml ) {
+        $self->{'error'} = 'param__xmlToHashRef_cgHubXml';
+        croak ("_xmlToHashRef() missing \$cgHubXml parameter.");
     }
 
     my $xmlAsHR;
     eval {
-       # Extract needed values from xml
        my $xmlParser = XML::Simple->new();
        $xmlAsHR = $xmlParser->XMLin( $cgHubXml );
     };
     if ($@) {
         my $error = $@;
-        my $self->{'error'} = "xml_parse_$analysisUuid";
-        croak( "Uncaught error parsing xml retrieved for $analysisUuid via url \"\"; error was $error")
+        $self->{'error'} = "cghub_xml_parsing";
+        croak( "Uncaught error parsing retrieved cghub analysis xml; error was $error");
+    }
+    return $xmlAsHR
+}
+
+=head2 _evaluateExternalStatus
+
+    my $externlStatus = $self->_evaluateExternalStatus( $xmlAsHR );
+
+Determine the appropriate external status given the infromation retrieved
+from cghub (parsed from downloaded metadata).
+
+=cut
+
+sub _evaluateExternalStatus {
+
+    my $self = shift;
+    my $dataHR = shift;
+
+    unless ( $dataHR ) {
+        $self->{'error'} = 'param__evaluateExternalStatus_dataHR';
+        croak ("_evaluateExternalStatus() missing \$dataHR parameter.");
     }
 
-    my $hitCount = $xmlAsHR->{'Hits'};
-    my $liveCount = $xmlAsHR->{'ResultSummary'}->{'state_count'}->{'live'};
+    my $externalStatus;
 
-    if ( $hitCount == 1 && $liveCount == 1) {
-        $externalStatus = 'live'
+    my $hitCount = $dataHR->{'Hits'};
+    my $liveCount = $dataHR->{'ResultSummary'}->{'state_count'}->{'live'};
+    if (! defined $hitCount) {
+          $externalStatus = "bad-hit-undef";
+    }
+    elsif ($hitCount != 1) {
+          $externalStatus = "bad-hit-$hitCount";
+    }
+    elsif (! defined $liveCount) {
+          $externalStatus = "bad-live-count-undef";
+    }
+    elsif ($liveCount != 1) {
+          $externalStatus = "bad-live-count-$liveCount";
+    }
+    else {
+          $externalStatus = 'live'
     }
 
     return $externalStatus;
 }
 
-=head2 $self->sayVerbose()
+=head2 _statusFromExternal
+
+    my $newStatus = $self->_statusFromExternal( $externalStatus );
+
+Logic to determine the appropriate status given the external status.
+
+=cut
+
+sub _statusFromExternal {
+
+    my $self = shift;
+    my $externalStatus = shift;
+
+    unless ( $externalStatus ) {
+        $self->{'error'} = 'param__statusFromExternal_externalStatus';
+        croak ("_statusFromExternal() missing \$externalStatus parameter.");
+    }
+
+    my $newStatus;
+
+    if ($externalStatus eq "live") {
+        $newStatus = 'live_completed';
+    }
+    elsif ($externalStatus eq "recheck-waiting") {
+        $newStatus = 'live_waiting';
+    }
+    else {
+        $newStatus = 'failed_live_' . $externalStatus;
+    }
+
+    return $newStatus;
+}
+
+=head2 sayVerbose()
 
     $self->sayverbose( $message ).
 

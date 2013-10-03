@@ -71,8 +71,8 @@ upload-cghub-fastq [options]
         --uploadBamBaseDir Data root for meta-data for uploaded bams
 
         # Run mode
-        --runMode     "ZIP" | "META"   | "VALIDATE"
-                            | "UPLOAD" | "ALL" (default)
+        --runMode     "ZIP" | "META"   | "VALIDATE" | "SUBMIT_META" |
+                      "SUBMIT_FASTQ" | "LIVE" | "ALL" (default)
 
         # Content and locations
         --xmlSchema        SRA schema name, sub-dir for templates
@@ -197,11 +197,10 @@ Performs the upload of the fastq file with gtsubmit
 
 =item LIVE
 
-Checks if data is visible to the community, updates external_status to live or
-"not-found". Only checks records for target CGHUB-FASTQ and status
-"submit-fastq_completed", depending on current external status. If null or "",
-checks. If "check-again-later" checks only if 24 hours (default) has ellapsed
-since last check. If anything else (including "live"), does not check.
+Checks if data is visible to the community, updates external_status to "live" or
+"recheck-waiting" or "failed_live_...". Only checks records for target
+CGHUB-FASTQ and status "submit-fastq_completed". Changes status to live_running
+while checking, and then to live_completed, live_waiting, or failed_live.
 
 =item ALL
 

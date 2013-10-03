@@ -11,7 +11,7 @@ use Bio::SeqWare::Db::Connection;
 
 use DBD::Mock;
 use Test::Output;         # Tests what appears on stdout.
-use Test::More 'tests' => 1 + 11;   # Main testing module; run this many subtests
+use Test::More 'tests' => 1 + 12;   # Main testing module; run this many subtests
                                      # in BEGIN + subtests (subroutines).
 
 
