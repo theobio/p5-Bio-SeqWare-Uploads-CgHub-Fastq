@@ -1,5 +1,10 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.021 2013-10-03 16:30:00
+ [MAJOR] - Add new LIVE mode to check cgHub to verify live status
+ [FIX]   - Error message if bad data
+ [DEV]   - Add tests
+
 0.000.021 2013-09-11 11:15:00
  [FIX]   - Incorrect syntax for setting transactions.
            Missed: No live db tests.

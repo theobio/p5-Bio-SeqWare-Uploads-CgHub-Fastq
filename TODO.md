@@ -1,6 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0020:
+This is release v0.000.0022:
 
 # ROADMAP
 
@@ -13,7 +13,7 @@ NOTHING PLANNED
 
 These changes are planned but have not been assigned to a specific future
 release, or will NOT be done, Date and version indicate when they were moved
-from "In consideration". 
+from "In consideration".
 
 2013-08-21 v0.000.001 [DOC] - Simplify module documentation
 2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
@@ -23,6 +23,7 @@ from "In consideration".
     Parameterize all settings different from bam uploads for future merge.
 2012-09-18 v0.000.021 [DEV] - Refactor updates and changes to upload record.
     Rule of 3 smell: functions with same task, different parameters.
+2012-09-18 v0.000.022 [DEV] - Add tests using mock objects to trigger errors.
 
 # IN CONSIDERATION
 

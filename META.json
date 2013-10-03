@@ -34,7 +34,9 @@
             "DBD::Pg" : "0",
             "DBI" : "0",
             "File::ShareDir" : "1.00",
+            "LWP::Simple" : "0",
             "Template" : "0",
+            "XML::Simple" : "0",
             "perl" : "0.014"
          }
       }
@@ -42,7 +44,7 @@
    "provides" : {
       "Bio::SeqWare::Uploads::CgHub::Fastq" : {
          "file" : "lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm",
-         "version" : "0.000021"
+         "version" : "0.000022"
       }
    },
    "release_status" : "stable",
@@ -51,5 +53,5 @@
          "http://opensource.org/licenses/gpl-license.php"
       ]
    },
-   "version" : "0.000021"
+   "version" : "0.000022"
 }

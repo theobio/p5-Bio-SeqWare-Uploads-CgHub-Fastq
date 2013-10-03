@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.020
+Version 0.000.022
 
 # SYNOPSIS
 
@@ -305,7 +305,7 @@ the  input fastq). Updates upload record to zip\_completed to indicate done.
 
 ## doMeta()
 
-    $obj->doMeta();
+    $obj->doMeta( $dbh );
 
 From $obj, reads:
  \_metaDataRoot      - Absolute path to some directory
@@ -320,19 +320,37 @@ To $obj, adds
  \_metaDataPath   - Full path, = \_metaDataRoot + \_\_metaDataUuid
  \_linkFileName   - The local name
 
-## = doValidate()
+## doValidate()
 
-    $obj->doValidate();
+    $obj->doValidate( $dbh );
 
-## = doSubmitMeta()
+## doSubmitMeta()
 
-    $obj->doSubmitMeta();
+    $obj->doSubmitMeta( $dbh );
 
-## = doSubmitFastq()
+## doSubmitFastq()
 
-    $obj->doSubmitFastq();
+    $obj->doSubmitFastq( $dbh );
 
-## = getAll()
+## doLive()
+
+    $obj->doLive( $dbh );
+
+Sets the external status for an upload record. Because there may be a delay
+between submitting a file and cghub setting it live, I need to allow multiple
+checks for live status. That requires states of "not checked", "checked but
+not live yet", "bad", and "done" as states.
+
+    "not checked"           => status         = 'submit-fastq_completed';
+                               externalstatus = null
+    "checked, not live yet" => status         = 'live_waiting';
+                               externalstatus = 'recheck-waiting'
+    "bad"                   => status         = 'live_failed';
+                               externalstatus = 'recheck-waiting'
+    "live"                  => status         = 'live_completed';
+                               externalstatus = 'live'
+
+## getAll()
 
     my $settingsHR = $obj->getAll();
     
@@ -351,8 +369,6 @@ sub getAll() {
     }
     return $copy;
 }
-
-
 
 ## getTimeStamp()
 
@@ -555,10 +571,17 @@ Dies for a lot of database errors.
 
 ## \_updateUploadStatus( ... )
 
-    $self->_updateUploadStatus( $dbh, $newStatus );
+    $self->_updateUploadStatus( $dbh, $uploadId, $newStatus );
 
 Set the status of the internally referenced upload record to the specified
 $newStatus string.
+
+## \_updateExternalStatus( ... )
+
+    $self->_updateExternalStatus( $dbh, $uploadId, $newStatus, $externalStatus );
+
+Set the status and external status of the internally referenced upload record
+to the specified $newStatus and $externalStatus strings.
 
 ## \_insertFile()
 
@@ -650,7 +673,42 @@ USES
 
     $obj->_submitFastq( $uploadHR );
 
-## $self->sayVerbose()
+## \_live
+
+    $obj->_live( $uploadHR );
+
+## \_makeCghubAnalysisQueryUrl
+
+    my $queryUrl = $self->_makeCghubAnalysisQueryUrl( $uploadHR );
+
+Generate the URL query string for retrieving the analysis xml data from CGHUB.
+
+## \_pullXmlFromUrl
+
+    my $xmlString = $self->_pullAnalysisXML( $queryUrl );
+
+Call out to web and get xml for a given URL back as string.
+
+## \_xmlToHashRef
+
+    my xmlHR = $self->_xmlToHashRef( $analysisXML );
+
+Convert the xml to a hash-ref.
+
+## \_evaluateExternalStatus
+
+    my $externlStatus = $self->_evaluateExternalStatus( $xmlAsHR );
+
+Determine the appropriate external status given the infromation retrieved
+from cghub (parsed from downloaded metadata).
+
+## \_statusFromExternal
+
+    my $newStatus = $self->_statusFromExternal( $externalStatus );
+
+Logic to determine the appropriate status given the external status.
+
+## sayVerbose()
 
     $self->sayverbose( $message ).
 
@@ -680,9 +738,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.020
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.022
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.020.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.022.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version

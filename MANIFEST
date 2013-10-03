@@ -22,6 +22,7 @@ t/Data/experiment.xml
 t/Data/paired_end_one.fastq
 t/Data/paired_end_two.fastq
 t/Data/run.xml
+t/Data/sampleAnalysisQuery.xml
 t/Data/single_end.fastq
 t/Data/toy.bam
 t/Data/toy.sam
