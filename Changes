@@ -1,8 +1,13 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
-0.000.021 2013-10-03 16:30:00
+0.000.023 2013-10-03 17:00:00
+ [FIX]   - Fixed crash bug with LIVE mode
+           Missed - Didn't do top-down test (still not done...)
+
+0.000.022 2013-10-03 16:30:00
  [MAJOR] - Add new LIVE mode to check cgHub to verify live status
  [FIX]   - Error message if bad data
+           Spelling errors in error messages hard to spot!
  [DEV]   - Add tests
 
 0.000.021 2013-09-11 11:15:00

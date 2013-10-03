@@ -1,6 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0022:
+This is release v0.000.0023:
 
 # ROADMAP
 
@@ -24,6 +24,7 @@ from "In consideration".
 2012-09-18 v0.000.021 [DEV] - Refactor updates and changes to upload record.
     Rule of 3 smell: functions with same task, different parameters.
 2012-09-18 v0.000.022 [DEV] - Add tests using mock objects to trigger errors.
+    Include tests for top-down usage.
 
 # IN CONSIDERATION
 

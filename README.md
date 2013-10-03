@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.022
+Version 0.000.023
 
 # SYNOPSIS
 
@@ -178,6 +178,7 @@ sub run {
             $self->doValidate( $dbh );
             $self->doSubmitMeta( $dbh );
             $self->doSubmitFastq( $dbh );
+            $self->doLive( $dbh );
         }
         elsif ($runMode eq "ZIP" ) {
             $self->doZip( $dbh );
@@ -193,6 +194,9 @@ sub run {
         }
         elsif ($runMode eq "SUBMIT_FASTQ" ) {
             $self->doSubmitFastq( $dbh );
+        }
+        elsif ($runMode eq "LIVE" ) {
+            $self->doZip( $dbh );
         }
         else {
             $self->{'error'} = "failed_run_unknown_run_mode";
@@ -738,9 +742,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.022
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.023
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.022.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.023.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version
