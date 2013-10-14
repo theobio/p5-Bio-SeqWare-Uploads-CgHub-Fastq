@@ -234,7 +234,7 @@ sub getFileBaseName {
     $obj->run();
   # or
     $obj->run( $runMode );
-    # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ ALL
+    # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ LIVE ALL
   # or
     $obj->run( $runMode, $dbh );
   # or
@@ -335,6 +335,9 @@ sub run {
         }
         elsif ($runMode eq "LIVE" ) {
             $self->doLive( $dbh );
+        }
+        elsif ($runMode eq "RERUN" ) {
+            $self->doRerun( $dbh );
         }
         else {
             $self->{'error'} = "failed_run_unknown_run_mode";
@@ -687,11 +690,413 @@ sub doLive() {
 
 }
 
+=head2 doRerun
+
+     $obj->doRerun( $dbh )
+
+Uses --rerunWait <days>
+
+Reruns failed sample fastq file uploads automatically. Failed samples are
+identified, associated database records (other than the upload record) are
+cleared, and any files on the file system are deleted. Parent data directories
+are NOT deleted. After everything finishes, the upload record itself will be
+deleted to allow for rerunning from scratch. To prevent a sample from being
+rerun, replace 'fail' or 'failed' in the status with 'bad'
+
+Selecting a sample for rerun:
+
+A CGHUB-FASTQ upload record is a rerun candidate if upload.status contains
+'fail', upload.external_status is 'live' and upload.tstmp is more than
+--rerunWait days ago. If selected, it will have its status changed to
+'rerun_running'. If rerun fails, the status will be changed to
+'rerun_failed_<error_tag>'. Note that failed reruns will themselves
+automatically be rerun after waiting. In-process samples will not be selected
+as they have no "fail" in their status. [TODO - deal with stuck "running"
+samples]. Unprocessed samples will not be selected as they have no CGHUB-FASTQ
+upload record.
+
+1. Gather information:
+
+Once a sample is selected for clearing, the following reverse walk is performed
+to obtain information
+
+    uploadId          <= upload
+    sampleId          <= upload
+    metadataPath      <= upload
+    fileId            <= upload_file
+    fastqZipFilePath  <= file
+    processingFilesId <= processing_files
+
+2. Clear file system:
+
+Remove the fastqZipFilePath fastq file and the metadataPath metadata directory
+(with all its contents). [TODO: Figure out saftey check for this.]
+
+3. Clear database as transaction:
+
+removing in order processing_files records, upload_file records, file records.
+
+4. Use upload record to signla done
+
+If no errors, delete the upload record, otherwise update its status to
+'rerun_failed_<message> status.
+
+=cut
+
+sub doRerun {
+    my $self = shift;
+    my $dbh = shift;
+
+    eval {
+        my $uploadRecord    = $self->_tagRerunUpload( $dbh );
+        my $rerunDataHR     = $self->_getRerunData( $dbh, $uploadRecord );
+        $self->_cleanFileSystem( $rerunDataHR );
+        $self->_cleanDatabase( $rerunDataHR );
+        $self->_removeUploadRecord( $uploadRecord );
+    };
+
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+            $self->{'error'} = 'unknown_error';
+        }
+        $self->{'error'} = 'failed_rerun_' . $self->{'error'};
+        croak $error;
+    }
+   return 1;
+}
+
+=head2 _changeUploadRerunStage
+
+    my $uploadRec = $self->_changeUploadRerunStage( $dbh );
+
+Similar to _changeUploadRunStage, except has different criteria for selection.
+
+uses $self->{'rerunWait'} config parmaeter (waiting time in days).
+
+
+=cut
+
+sub _changeUploadRerunStage {
+
+    my $self = shift;
+    my $dbh = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__changeUploadRerunStage_dbh";
+        croak ("_changeUploadRerunStage() missing \$dbh parameter.");
+    }
+
+    my %upload;
+    my $toStatus = 'rerun_running';
+
+    # Setup SQL to select upload record.
+    my $selectSql =
+       "SELECT *
+        FROM upload AS u, sample AS s
+        WHERE u.target = 'CGHUB_FASTQ'
+          AND s.sample_id = u.sample_id
+          AND u.status like '%fail%'
+          AND u.tstmp < (NOW() - INTERVAL '$self->{'rerunWait'} DAY')";
+
+    if ($self->{'sampleId'       }) { $selectSql .= " AND s.sample_id = ?";    }
+    if ($self->{'sampleAccession'}) { $selectSql .= " AND s.sw_accession = ?"; }
+    if ($self->{'sampleAlias'    }) { $selectSql .= " AND s.alias = ?";       }
+    if ($self->{'sampleUuid'     }) { $selectSql .= " AND s.tcga_uuid = ?";    }
+    if ($self->{'sampleTitle'    }) { $selectSql .= " AND s.title = ?";        }
+    if ($self->{'sampleType'     }) { $selectSql .= " AND s.type = ?";         }
+
+    $selectSql .= " ORDER by upload_id DESC limit 1";
+
+    $self->sayVerbose( "Selction sql:\$selectSql");
+
+    # Setup SQL parameters for the selection SQL, same order as above.
+    my @sqlParameters;
+    if ($self->{'sampleId'       }) { push @sqlParameters, $self->{'sampleId'       }; }
+    if ($self->{'sampleAccession'}) { push @sqlParameters, $self->{'sampleAccession'}; }
+    if ($self->{'sampleAlias'    }) { push @sqlParameters, $self->{'sampleAlias'    }; }
+    if ($self->{'sampleUuid'     }) { push @sqlParameters, $self->{'sampleUuid'     }; }
+    if ($self->{'sampleTitle'    }) { push @sqlParameters, $self->{'sampleTitle'    }; }
+    if ($self->{'sampleType'     }) { push @sqlParameters, $self->{'sampleType'     }; }
+
+    # Setup SQL update statement to claim upload record for current run.
+    my $updateSQL =
+       "UPDATE upload
+        SET status = ?
+        WHERE upload_id = ?";
+
+    # DB transaction
+    eval {
+        $dbh->begin_work();
+        $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+
+        my $selectionSTH = $dbh->prepare( $selectSql );
+        if (@sqlParameters && scalar @sqlParameters > 0) {
+            $self->sayVerbose( "Select SQL parameters:\n" . Dumper( \@sqlParameters) );
+            $selectionSTH->execute(@sqlParameters);
+        }
+        else {
+            $selectionSTH->execute();
+        }
+        my $rowHR = $selectionSTH->fetchrow_hashref();
+        $selectionSTH->finish();
+
+        if (! defined $rowHR) {
+
+            # Nothing to update - this is a normal exit
+            $dbh->commit();
+            $self->sayVerbose("Found no uplaad record to rerun with status "
+                . " containing 'fail' and timestamp more than $self->{'rerunWait'} days ago." );
+            return;
+        }
+        else {
+            # Will be passing this back, so make copy.
+            %upload = %$rowHR;
+
+            unless ( $upload{'upload_id'} ) {
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRerunStage retrieved record without an upload_id. Strange.";
+            }
+            my $uploadId = $upload{'upload_id'};
+
+            unless ( $upload{'status'} ) {
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRerunStage retrieved record without a status. Strange.";
+            }
+            my $fromStatus = $upload{'status'};
+
+            $self->sayVerbose("Found upload record to rerun: "
+                . " sample id = $upload{'sample_id'};"
+                . " upload id = $uploadId;"
+                . " old status = '$fromStatus';"
+                . " new_status = '$toStatus'.");
+
+            my $updateSTH = $dbh->prepare( $updateSQL );
+            $updateSTH->execute( $toStatus, $uploadId, );
+            if ($updateSTH->rows() != 1) {
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRerunStage failed to update rerun upload status for upload $uploadId.\n";
+            }
+            $updateSTH->finish();
+
+            $dbh->commit();
+
+            $self->{'_fastqUploadId'} = $upload{'upload_id'};
+            $upload{'status'} = $toStatus; # Correct local copy to match db.
+        }
+    };
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= "\nALSO: ***Rollback appeared to fail*** $@ \n";
+        }
+        if (! $self->{'error'}) {
+                $self->{'error'} = "update_rerun_upload";
+        }
+        croak "Failed trying to tag a 'fail' upload record for rerun: $error\n";
+    }
+
+    if (! %upload) {
+        return undef;
+    }
+    else {
+        return \%upload;
+    }
+}
+
+sub _getRerunData {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadHR = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__getRerunData_dbh";
+        croak ("_getRerunData() missing \$dbh parameter.");
+    }
+
+    unless ($uploadHR) {
+        $self->{'error'} = "param__getRerunData_uploadHR";
+        croak ("_getRerunData() missing \$uploadHR parameter.");
+    }
+
+    my $rerunDataHR;
+    $rerunDataHR->{'upload'} = $uploadHR;
+    $rerunDataHR->{'file_id'} = $self->_getAssociatedFileId( $dbh, $rerunDataHR->{'upload'}->{'upload_id'});
+    if (! $rerunDataHR->{'file_id'}) {
+        return $rerunDataHR;
+    }
+    $rerunDataHR->{'file_path'} = $self->_getFilePath( $dbh, $rerunDataHR->{'file_id'});
+    if (! $rerunDataHR->{'file_path'}) {
+        return $rerunDataHR;
+    }
+    my ($id1, $id2) = $self->_getAssociatedProcessingFileIds( $dbh, $rerunDataHR->{'file_id'});
+    $rerunDataHR->{'processing_file_id_1'} = $id1;
+    $rerunDataHR->{'processing_file_id_2'} = $id2;
+
+    return $rerunDataHR;
+}
+
+=head2 _getAssociatedFileId
+
+   my $fileId = $self->_getAssociatedFileId( $dbh, $uploadId)
+
+Looks up the upload_file records assoicated with the specified upload table.
+If there are no such records, returns undef. If there is one record, returns
+the file_id. If there are multiple such records, dies.
+
+=cut
+
+sub _getAssociatedFileId {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__getAssociatedFileId_dbh";
+        croak ("_getAssociatedFileId() missing \$dbh parameter.");
+    }
+
+    unless ($uploadId) {
+        $self->{'error'} = "param__getAssociatedFileId_uploadId";
+        croak ("_getAssociatedFileId() missing \$uploadId parameter.");
+    }
+
+    my $fileId;
+
+    # One upload_file record
+    my $uploadFileSQL =
+       "SELECT file_id
+        FROM upload_file
+        WHERE upload_id = ?";
+
+    my $uploadFileSTH = $dbh->prepare( $uploadFileSQL );
+    $uploadFileSTH->execute( $uploadId );
+    if ($uploadFileSTH->rows() > 1) {
+        $uploadFileSTH->finish();
+        $self->{'error'} = "multiple_linked_files";
+        croak "Found more than one file linked to upload $uploadId.\n";
+    }
+    elsif ($uploadFileSTH->rows() == 0) {
+        $uploadFileSTH->finish();
+        $self->sayVerbose( "No files linked to upload $uploadId.\n" );
+        # To be specific
+        $fileId = undef; 
+    }
+    else {
+        # One upload_file record
+        my $rowHR = $uploadFileSTH->fetchrow_hashref();
+        $fileId = $rowHR->{'file_id'};
+        $uploadFileSTH->finish();
+    }
+
+    return $fileId;
+}
+
+=head2 _getFilePath
+
+   my $filePath = $self->_getFilePath( $dbh, $fileId)
+
+Looks up the file record associated with the given file id and returns the
+path associated with that file.
+
+=cut
+
+sub _getFilePath {
+ 
+    my $self = shift;
+    my $dbh = shift;
+    my $fileId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__getFilePath_dbh";
+        croak ("_getFilePath() missing \$dbh parameter.");
+    }
+
+    unless ($fileId) {
+        $self->{'error'} = "param__getFilePath_fileId";
+        croak ("_getFilePath() missing \$fileId parameter.");
+    }
+
+    my $filePath;
+
+    my $filePathSQL =
+       "SELECT file_path
+        FROM file
+        WHERE file_id = ?";
+
+    my $filePathSTH = $dbh->prepare( $filePathSQL );
+    $filePathSTH->execute( $fileId );
+    my $rowHR = $filePathSTH->fetchrow_hashref();
+    $filePath = $rowHR->{'file_path'};
+    $filePathSTH->finish();
+
+    return $filePath;
+}
+
+=head2 _getAssociatedProcessingFileIds
+
+   my ($id1, $id2) = $self->_getAssociatedProcessingFileIds( $dbh, $fileId)
+
+Looks up the (0 to 2) file records in processing_files associated with the given
+file id and returns the ids of those record. If more than 2 records are
+returned, an error is thrown. If only one record is found, returns ($id1, undef).
+If no records are found, returns (undef, undef).
+
+=cut
+
+sub _getAssociatedProcessingFileIds {
+    my $self = shift;
+    my $dbh = shift;
+    my $fileId = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__getAssociatedProcessingFileIds_dbh";
+        croak ("_getAssociatedProcessingFileIds() missing \$dbh parameter.");
+    }
+
+    unless ($fileId) {
+        $self->{'error'} = "param__getAssociatedProcessingFileIds_fileId";
+        croak ("_getAssociatedProcessingFileIds() missing \$fileId parameter.");
+    }
+
+    my $processingFileId1;
+    my $processingFileId2;
+
+    my $processingFilesIdSQL =
+       "SELECT processing_files_id
+        FROM processing_files
+        WHERE file_id = ?";
+
+    my $processingFilesIdSTH = $dbh->prepare( $processingFilesIdSQL );
+    $processingFilesIdSTH->execute( $fileId );
+    if ($processingFilesIdSTH->rows() > 2) {
+        $self->{'error'} = "too_many_processing_links";
+        croak "Found more than two processing records linked to fileId $fileId.\n";
+    }
+    my $rowHR = $processingFilesIdSTH->fetchrow_hashref();
+    if ($rowHR->{'processing_files_id'}) {
+        $processingFileId1 = $rowHR->{'processing_files_id'}; # Default, undef
+        $rowHR = $processingFilesIdSTH->fetchrow_hashref();
+        if ($rowHR->{'processing_files_id'}) {
+            $processingFileId2 = $rowHR->{'processing_files_id'}; # Default, undef
+        }
+    }
+    $processingFilesIdSTH->finish();
+
+    return ($processingFileId1, $processingFileId2);
+}
+
 =head2 getAll()
 
   my $settingsHR = $obj->getAll();
-  
+
 Retrieve a copy of the properties assoiciated with this object.
+
 =cut
 
 sub getAll() {

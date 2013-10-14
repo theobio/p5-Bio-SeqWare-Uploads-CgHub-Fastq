@@ -88,7 +88,7 @@ subtest( '_updateExternalStatus()' => \&test__updateExternalStatus );
 $MOCK_DBH->disconnect();
 
 sub test__changeUploadRunStage {
-    plan( tests => 25 );
+    plan( tests => 23 );
 
     my $oldStatus = "parent_stage_completed";
     my $newStatus = "child_stage_running";
@@ -139,22 +139,9 @@ sub test__changeUploadRunStage {
             DBD::Mock::Session->new( "verbose not", @dbSession );
         stdout_unlike {
             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/SQL to find a lane/, 'No 1st messages if not verbose';
+        } qr/.+/, 'No messages when not verbose';
     }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose not 2", @dbSession );
-        stdout_unlike {
-             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/SQL to set to state/, 'No 2nd messages if not verbose';
-    }
-    {
-        $MOCK_DBH->{'mock_session'} =
-            DBD::Mock::Session->new( "verbose not 3", @dbSession );
-        stdout_unlike {
-             $obj->_changeUploadRunStage( $MOCK_DBH, $oldStatus, $newStatus )
-        } qr/\; UPLOAD_BASE_DIR/, 'No 3rd messages if not verbose';
-    }
+
     {
         $MOCK_DBH->{'mock_session'} =
             DBD::Mock::Session->new( "verbose", @dbSession );
@@ -222,7 +209,6 @@ sub test__changeUploadRunStage {
             'results'  => [[]],
         }, {
             'statement'    => qr/SELECT \*/msi,
-            'bound_params' => [  ],
             'bound_params' => [ $oldStatus, $opt->{'sampleId'}, $opt->{'sampleAccession'},
                 $opt->{'sampleAlias'}, $opt->{'sampleUuid'}, $opt->{'sampleTitle'}, $opt->{'sampleType'} ],
             'results'  => [

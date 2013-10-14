@@ -106,28 +106,133 @@ this script reads some of its options from the seqware config file
 config file options, can be over-ridden from the command line. No command line
 option is required, but the runMode option is often used.
 
-Zipping and uploading fastq files to cgHub is broken into four separate tasks
-each of which has its own C<--runMode>. The default runMode is "ALL" which runs
-each of the four tasks in turn: "ZIP" "META", "VALIDATE", and then "SUBMIT".
-Each mode can run independently, and will only run on samples where the prior
-mode succeeded. The initial "ZIP" mode only runs on samples that have had their
-bam files successfuly upload. To signal completion of each step for a sample,
-the status of the CGHUB_FASTQ upload record is set to <step>_finished, e.g. to
-"zip_finished". when any step, except ZIP is run, it figures out what to work
-on by looking for an upload reacord with target CGHUB_FASTQ and status
-"<parent_step>_finished" and claims it by setting its status to
-"<step>_running". When done every step changes this same records status to
-<step>_completed, or to <step>_failed_<error_name> if fails. The first step
-decides in needs to run based on the existance of an upload record with targed
-"CGHUB" and an external status of "live". Zip then claim this sample for
-processing by inserting a new record for a sample with target "CGHUB_FASTQ"
-and status of "zip_running".
+Zipping and uploading fastq files to cgHub is broken into multiple separate
+tasks, each of which has its own C<--runMode>. The default runMode is "ALL"
+which runs each of the tasks in turn: "ZIP" "META", "VALIDATE", "UPLOAD_META",
+"UPLOAD_FASTQ", and "LIVE". Each mode can run independently, and will only run
+on samples where the prior mode succeeded.
 
 The database tracks processing state for every sample, and processing changes
 are made atomically (finding a record and setting its state are done within a
 transaction) this program can be run in parallel. Each parallel run only
 works on one step of one sample at a time, and will only work on a sample-step
 that is not already running.
+
+The initial "ZIP" mode only runs on
+samples that have had their bam files successfuly upload. To signal completion
+of each step for a sample, the status of the CGHUB_FASTQ upload record is set
+to E<lt>stepE<gt>_completed, e.g. to "zip_completed". When any step, except ZIP is run,
+it figures out what to work on by looking for an upload reacord with target
+CGHUB_FASTQ and status "E<lt>parent_stepE<gt>_completed" and claims it by setting its
+status to "E<lt>runModeE<gt>_running". When done every step changes this same record's
+status to E<lt>stepE<gt>_completed, or to E<lt>stepE<gt>_failed_E<lt>error_nameE<gt> if the step failed.
+
+The initial (ZIP) step is special. It decides it needs to run based on the
+existance of an upload record with targed "CGHUB" and an external status of
+"live" and was part of a specific upload block of bams (as identified by upload
+directroy /datastore/tcga/cghub/v2_uploads). Zip then claim such a sample for
+processing by inserting a new record for a sample with target "CGHUB_FASTQ"
+and status of "zip_running".
+
+The RERUN mode is special and merely clears a sample that is more than
+--rerunWait days old that filed in a previous attempt to upload. It does not
+actually rerun the sample, but clears everything to allow the sample to be
+seletected again for upload. If RERUN fails, it will tag the sample with
+failed_rerun_E<lt>messageE<gt>. Note, this counts as a sample to rerun, after enough
+time passes. To prevent a samle rerunning, change its status to something not
+containing 'fail' or 'failed', like "FAIL" or, better yet, 'BAD'.
+=cut
+
+=head1 DATABASE
+
+=head2 Table: upload
+
+The upload table records are expected to describe the current status of sample
+upload events. Each upload event is associated with a specific sample and is
+targeted to a specific location (CGHUB, CGHUB_FASTQ, etc). Uploads go through a
+variety of internal states during the process of uploading. After uploading
+they also have an external status based on the visibility of the sample at the
+target location. The location on the file system where the uploaded metadata and
+links to uploaded data files are stored is recored. The path is represented as
+a data root and (within that directory) a separate directory for each uploaded
+sample. The sample directory is a 'uuid' and is a unique global identifier for
+an upload. It is expected that this will be used both by us and by the upload
+target site.
+
+=over 3
+
+=item upload_id INT
+
+The primary key for this record. This is also used in the uplaod_file linker
+table to allow many to many associations with file records. An upload event may
+be associated with more than one file, and it is possible that the same file
+may be assoicated with more than one upload event.
+
+=item sample_id INT
+
+A foreign key reference to the sample associated with this upload event. One and
+only one sample can be associated with a given upload event. This does not
+allow for the upload of "sample set" files that summarize data across multiple
+samples. [TODO: An additional upload_set table would be required to support that.]
+
+=item target TEXT
+
+The name of the target for this upload. This is an abstract name used to
+identifiy an upload "protocol" for a type of uploads. Examples include "CGHUB"
+and "CGHUB_FASTQ"
+
+=item status TEXT
+
+This field represents the internal status for the upload. The meaning of this
+status depends on the upload.target. For CGHUB_FASTQ it is used as a place to
+coordinate "job-state" and to manage the sub-tasks of an upload process. It
+consists of two parts: E<lt>task_stageE<gt>_E<lt>statusE<gt>. Task stages can be "zip", "meta",
+"validate", "submit-meta", "submit-fastq", "rerun" or "live" (in that order),
+status can be "running", "completed", "failed" or "bad". If status is "failed"
+or "bad", there is a third component giving a reason for failure. The status
+changes from E<lt>parent-stageE<gt>_completed to E<lt>child-stageE<gt>_running, and then to
+either E<lt>child-stageE<gt>_completed or E<lt>child_stageE<gt>_failed_E<lt>reasonE<gt> as each step in
+the upload process runs and completes. The status "live_completed" or
+E<lt>stageE<gt>_bad_E<lt>reasonE<gt> is the final status for all CGHUB_FASTQ submissions. An
+example failure status might be "zip_failed_fastq_md5_mismatch". [TODO: A better
+means of associating error messages with upload records is needed]. If the
+status contains "...fail...", then after a suitable period, the sample will
+automatically be rerun. To prevent that, manual review of failed sample is
+required, with the status being changed to "...bad...", indicating no upload
+for a given sample to a given target is possible.
+
+=item external_status TEXT
+
+This field represents the external status of the sample upload as visible at
+the target. This is validated by querying the external site directory. A status
+of "live" indicates the record is present. A missing status (NULL) indicates the
+data has not be checked for at the external site. This is usually because the
+upload is not done or has been completed too recently for the data to be visible
+at the remote site. There is usually a visibility delay because of the remote
+site's internal process. A message of "recheck-waiting" means a check was
+performed, but nothing was recieved. Other external_status values can indicate
+various error states, but this is redundant with the status of
+E<lt>liveE<gt>_failed_E<lt>error-message>.
+
+=item metadata_dir FULL-PATH-DIR
+
+The base directory where the files and links generated during the upload process
+are kept. Each upload event will have its own sub-directory (see cghub_analysis_id).
+
+=item cghub_analysis_id UUID
+
+The uusd identifying this sample x target upload event in a global unique way.
+Also used as the specific directory for the files and links generated during the
+upload process. A subdirectory within upload.metadata_dir.
+
+=item tstmp TIMESTAMP
+
+A timestamp for the last time this record was created or updated. Automatically
+set on insert and changed on update. Used to determine intervals for rerun and
+for detecting hung processes where state of "running" has persisted too long.
+[TODO implement this].
+
+=back
 
 =cut
 
@@ -170,7 +275,7 @@ shared distro directory:
 When running META mode, looks for an upload record with target "CGHUB_FASTQ"
 and status "zip_completed", and selects it by changing the status to
 "meta_running". When complete, changes the status to "meta_completed". Errors
-should change the status to meta_failed_<reason>, but that is not fully
+should change the status to meta_failed_E<lt>reasonE<gt>, but that is not fully
 implemented. Probably just leaves them hanging as meta_running. This step
 should not take more than a minute to run.
 
@@ -183,7 +288,7 @@ constraints.
 When running VALIDATE mode, looks for an upload record with target "CGHUB_FASTQ"
 and status "meta_completed", and selects it by changing the status to
 "validate_running". When complete, changes the status to "validate_completed".
-Errors should change the status to "validate_failed<reason>" but that is not
+Errors should change the status to "validate_failed_E<lt>reasonE<gt>" but that is not
 fully implemented. Probably just leaves them hanging as validate_running. This
 step should not take more than a minute to run.
 
@@ -231,7 +336,7 @@ Currently only the default is avaialble: SRA_1-5
 Allows selecting a directory to look in for templates. The default is the
 shared module directory (see --runMode META). The templates are expected to be
 in a subdir as specified by the --xmlSchema, i.e. the analysis.xml template
-would be in <templateBaseDir>/<xmlSchema>.
+would be in E<lt>templateBaseDirE<gt>/E<lt>xmlSchemaE<gt>.
 
 =item --analysisTemplateName
 
@@ -291,6 +396,10 @@ Filter sample to upload by the tcga uuid.
 
 Filter sample to upload by upload id.
 
+=item --rerunWait INT
+
+Waiting time (in days) before attempting atuo rerun.
+
 =back
 
 =cut
@@ -307,6 +416,7 @@ sub _processCommandLine {
         'xmlSchema'        => 'SRA_1-5',
         'templateBaseDir'  => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
         'recheckWaitHours' => 24,
+        'rerunWait'        => 7,
     };
 
     # Combine local defaults with ()over-ride by) config file options
@@ -345,6 +455,7 @@ sub _processCommandLine {
 
         'minFastqSize=i'       => \$opt{'minFastqSize'},
         'rerun'                => \$opt{'rerun'},
+        'rerunWait'            => \$opt{'rerunWait'},
         'runMode=s'            => \$opt{'runMode'},
         'recheckWaitHours'     => \$opt{'recheckWaitHours'},
 

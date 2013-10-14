@@ -32,6 +32,7 @@ t/manifest.t
 t/meta.t
 t/pod-coverage.t
 t/pod.t
+t/rerun.t
 t/submit_meta.t
 t/submit_fastq.t
 t/validate.t
