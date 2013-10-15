@@ -750,7 +750,7 @@ sub doRerun {
     eval {
         my $uploadRecord    = $self->_tagRerunUpload( $dbh );
         my $rerunDataHR     = $self->_getRerunData( $dbh, $uploadRecord );
-        $self->_cleanFileSystem( $rerunDataHR );
+        $self->_cleanFileSystem( $dbh, $rerunDataHR->{'file_path'} );
         $self->_cleanDatabase( $rerunDataHR );
         $self->_removeUploadRecord( $uploadRecord );
     };
@@ -912,7 +912,7 @@ sub _changeUploadRerunStage {
   my $dataHR = $self->_getRerunData( $dbh, $uploadHR );
 
 Returns a hashref of all the data needed to clear an upload, including the
-uploadHR data.
+uploadHR data. Missing data indicated by key => undef.
 
   $dataHR->{'upload'}->{'upload_id'}
                      ->{'sample_id'}
@@ -1118,6 +1118,158 @@ sub _getAssociatedProcessingFileIds {
 
     return ($processingFileId1, $processingFileId2);
 }
+
+=head2 _cleanDatabase
+
+    $self->_cleanDatabase( $dbh, $rerunDataHR) or die( "failed" ).
+
+Clears all database records as specified by the $rerunDataHR provided,
+as follows:
+
+  If $dataHR->{'processing_files_id_2'},
+       deletes 1 processing_files record with that id.
+  If $dataHR->{'processing_files_id_1'},
+       deletes 1 processing_files record with that id.
+  If $dataHR->{'file_id'},
+       deletes 1 upload_file record with that file_id and upload_id.
+  If $dataHR->{'file_path'},
+       deletes 1 file record with that file_id.
+  If $dataHR->{'upload'}->{upload_id},
+       deletes 1 upload record with that upload_id.
+
+If any data is missing (except the upload_id), no attempt will be made to
+delete the associated record  If at any time the number of records scheduled
+for deletion is not 1, then all deletions will be rolled back and this will
+exit with error. It is also an error if the upload_id is not provided.
+
+Note: No checks are made to ensure that the provided data are related, i.e. any
+id's can be provided. but since there are foreign key constraints between
+processing_files and file, and between upload and file, it is unlikely that
+deletions will all complete if not correctly associated.
+
+=cut
+
+sub _cleanDatabase {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $rerunDataHR = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__cleanDatabase_dbh";
+        croak ("_cleanDatabase() missing \$dbh parameter.");
+    }
+
+    unless ($rerunDataHR) {
+        $self->{'error'} = "param__cleanDatabase_rerunDataHR";
+        croak ("_cleanDatabase() missing \$rerunDataHR parameter.");
+    }
+
+    unless ($rerunDataHR->{'upload'}->{'upload_id'}) {
+        $self->{'error'} = "param__cleanDatabase_rerunDataHR_upload_id";
+        croak ("_cleanDatabase() missing \$rerunDataHR->upload->upload_id parameter.");
+    }
+
+    eval {
+        $dbh->begin_work();
+        $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+
+        # Processing files 1 and 2
+        {
+            my $deleteProcessingFilesSQL =
+                "DELETE FROM processing_files
+                WHERE processing_files_id = ?";
+            my $deleteProcessingFilesSTH = $dbh->prepare( $deleteProcessingFilesSQL );
+
+            if ($rerunDataHR->{'processing_file_id_2'} ) {
+                $deleteProcessingFilesSTH->execute( $rerunDataHR->{'processing_file_id_2'} );
+                if ( $deleteProcessingFilesSTH->rows() != 1) {
+                    $self->{'error'} = "deleting_processing_files_2";
+                    croak "$deleteProcessingFilesSTH->rows() returned upon delete of processing_files_id rerunDataHR->{'processing_file_id_2'}.\n";
+                }
+            }
+            if ($rerunDataHR->{'processing_file_id_1'} ) {
+                $deleteProcessingFilesSTH->execute( $rerunDataHR->{'processing_file_id_1'} );
+                if ( $deleteProcessingFilesSTH->rows() != 1) {
+                    $self->{'error'} = "deleting_processing_files_1";
+                    croak "$deleteProcessingFilesSTH->rows() returned upon delete of processing_files_id rerunDataHR->{'processing_file_id_1'}.\n";
+                }
+            }
+            $deleteProcessingFilesSTH->finish();
+        }
+
+        # Upload file
+        {
+            my $deleteUploadFileSQL =
+                "DELETE FROM upload_file
+                WHERE upload_id = ? and file_id = ?";
+            my $deleteUploadFileSTH = $dbh->prepare( $deleteUploadFileSQL );
+
+            if ($rerunDataHR->{'file_id'} ) {
+                $deleteUploadFileSTH->execute( $rerunDataHR->{'upload'}->{'upload_id'}, $rerunDataHR->{'file_id'} );
+                if ( $deleteUploadFileSTH->rows() != 1) {
+                    $self->{'error'} = "deleting_upload_file";
+                    croak "$deleteUploadFileSTH->rows() returned upon delete of upload_file with"
+                          . "upload_id $rerunDataHR->{'upload'}->{'upload_id'}, file_id $rerunDataHR->{'file_id'}.\n";
+                }
+            }
+            $deleteUploadFileSTH->finish();
+        }
+
+        # File
+        {
+            my $deleteFileSQL =
+                "DELETE FROM file
+                WHERE file_id = ?";
+            my $deleteFileSTH = $dbh->prepare( $deleteFileSQL );
+
+            if ($rerunDataHR->{'file_path'} ) {
+                $deleteFileSTH->execute( $rerunDataHR->{'file_id'} );
+                if ( $deleteFileSTH->rows() != 1) {
+                    $self->{'error'} = "deleting_file";
+                    croak "$deleteFileSTH->rows() returned upon delete of file_id rerunDataHR->{'file_id'}.\n";
+                }
+            }
+            $deleteFileSTH->finish();
+        }
+
+        # Upload
+        {
+            my $deleteUploadSQL =
+                "DELETE FROM upload
+                WHERE upload_id = ?";
+            my $deleteUploadSTH = $dbh->prepare( $deleteUploadSQL );
+
+            if ($rerunDataHR->{'file_path'} ) {
+                $deleteUploadSTH->execute( $rerunDataHR->{'upload'}->{'upload_id'} );
+                if ( $deleteUploadSTH->rows() != 1) {
+                    $self->{'error'} = "deleting_upload";
+                    croak "$deleteUploadSTH->rows() returned upon delete of upload_id $rerunDataHR->{'upload'}->{'upload_id'}.\n";
+                }
+            }
+            $deleteUploadSTH->finish();
+        }
+
+        $dbh->commit();
+    };
+
+    if ($@) {
+        my $error = $@;
+        eval {
+            $dbh->rollback();
+        };
+        if ($@) {
+            $error .= "\nALSO: ***Rollback appeared to fail*** $@ \n";
+        }
+        if (! $self->{'error'}) {
+                $self->{'error'} = "unknown_rerun__cleanDatabase";
+        }
+        croak "_cleanDatabase failed to delete the upload record for upload $rerunDataHR->{'upload'}->{'upload_id'}. $error\n";
+    }
+
+    return 1;
+}
+
 
 =head2 getAll()
 
