@@ -907,6 +907,28 @@ sub _changeUploadRerunStage {
     }
 }
 
+=head2 _getRerunData
+
+  my $dataHR = $self->_getRerunData( $dbh, $uploadHR );
+
+Returns a hashref of all the data needed to clear an upload, including the
+uploadHR data.
+
+  $dataHR->{'upload'}->{'upload_id'}
+                     ->{'sample_id'}
+                     ->{'target'}
+                     ->{'status'}
+                     ->{'external_status'}
+                     ->{'metadata_dir'}
+                     ->{'cghub_analysis_id'}
+                     ->{'tstmp'}
+         ->{'file_id'}
+         ->{'file_path'}
+         ->{'processing_file_id_1'}
+         ->{'processing_file_id_2'}
+
+=cut
+
 sub _getRerunData {
 
     my $self = shift;
@@ -923,8 +945,14 @@ sub _getRerunData {
         croak ("_getRerunData() missing \$uploadHR parameter.");
     }
 
-    my $rerunDataHR;
-    $rerunDataHR->{'upload'} = $uploadHR;
+    my $rerunDataHR = {
+        'upload' => $uploadHR,
+        'file_id' => undef,
+        'file_path' => undef,
+        'processing_file_id_1' => undef,
+        'processing_file_id_2' => undef,
+    };
+
     $rerunDataHR->{'file_id'} = $self->_getAssociatedFileId( $dbh, $rerunDataHR->{'upload'}->{'upload_id'});
     if (! $rerunDataHR->{'file_id'}) {
         return $rerunDataHR;
@@ -1133,7 +1161,6 @@ sub getTimeStamp {
     return sprintf ( "%04d-%02d-%02d_%02d:%02d:%02d",
                      $yr+1900, $mon+1, $day, $hr, $min, $sec);
 }
-
 
 =head1 INTERNAL METHODS
 

@@ -15,6 +15,11 @@ use Bio::SeqWare::Uploads::CgHub::Fastq;
 
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
 my $TEMP_DIR = File::Temp->newdir();  # Auto-delete self and contents when out of scope
+my $filename = File::Temp->new(
+    'TEMPLATE' => "dummyZipFile_XXXX", 'SUFFIX' => ".tar.gz"
+)->filename;
+my $TEMP_FILE = File::Spec->catfile( $TEMP_DIR, $filename);
+`touch $TEMP_FILE`;
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $CONFIG = Bio::SeqWare::Config->new();
@@ -24,6 +29,7 @@ my $OPT_HR = { %$OPT,
     'runMode'      => 'rerun',
     'rerunWait'    => 1,
 };
+
 
 # Fake database handle, to use in place of $dbh parameters (as long as have
 # specified an attached session).
@@ -45,6 +51,15 @@ my %MOCK_UPLOAD_REC = (
     'cghub_analysis_id' => '00000000-0000-0000-0000-000000000000',
 );
 
+# Fake tested method returs
+sub mock__getAssociatedFileId_undef { return undef; }
+sub mock__getAssociatedFileId { return -5; }
+sub mock__getFilePath_undef { return undef; }
+sub mock__getFilePath { return $TEMP_FILE; }
+sub mock__getAssociatedProcessingFileIds_undef { return (undef, undef); }
+sub mock__getAssociatedProcessingFileIds_1of2 { return (-201, undef); }
+sub mock__getAssociatedProcessingFileIds_2of2 { return (-201, -202); }
+
 #
 # TESTS
 #
@@ -60,7 +75,114 @@ subtest( '_getAssociatedProcessingFileIds()' => \&test__getAssociatedProcessingF
 #
 
 sub test__getRerunData {
-    plan( tests => 4 );
+    plan( tests => 9 );
+
+    # No upload_file record available for retrieval
+    {
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => undef,
+            'file_path' => undef,
+            'processing_file_id_1' => undef,
+            'processing_file_id_2' => undef,
+        };
+        my $obj = $CLASS->new( $OPT_HR );
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId_undef;
+        {
+            my $testThatThisSub = "Retrieves expeted data record if no upload_file record.";
+            my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
+            my $want = $rerunDataHR;
+            is_deeply( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # upload_file but no file record available for retrieval
+    {
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => undef,
+            'processing_file_id_1' => undef,
+            'processing_file_id_2' => undef,
+        };
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath_undef;
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Retrieves expeted data record if no file record.";
+            my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
+            my $want = $rerunDataHR;
+            is_deeply( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # upload_file and file by no processing_file1
+    {
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_file_id_1' => undef,
+            'processing_file_id_2' => undef,
+        };
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_undef;
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Retrieves expeted data record if no processing_file1 record.";
+            my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
+            my $want = $rerunDataHR;
+            is_deeply( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # upload_file, file processing_file1 but no processing_file2
+    {
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_file_id_1' => -201,
+            'processing_file_id_2' => undef,
+        };
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_1of2;
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Retrieves expeted data record if no processing_file2 record.";
+            my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
+            my $want = $rerunDataHR;
+            is_deeply( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Smoke test, with everything
+    {
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_file_id_1' => -201,
+            'processing_file_id_2' => -202,
+        };
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_2of2;
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Retrieves expeted data record if have all info.";
+            my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
+            my $want = $rerunDataHR;
+            is_deeply( $got, $want, $testThatThisSub);
+        }
+    }
 
     # Bad Parameters - $dbh
     {
