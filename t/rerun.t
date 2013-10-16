@@ -9,17 +9,50 @@ use File::Temp;           # Simple files for testing
 
 use Bio::SeqWare::Config; # Read the seqware config file
 use DBD::Mock;
-use Test::More 'tests' => 5;    # Run this many Test::More compliant subtests
+use Test::More 'tests' => 12;    # Run this many Test::More compliant subtests
 
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
 my $TEMP_DIR = File::Temp->newdir();  # Auto-delete self and contents when out of scope
 my $filename = File::Temp->new(
-    'TEMPLATE' => "dummyZipFile_XXXX", 'SUFFIX' => ".tar.gz"
+    'TEMPLATE' => "dummyZipFile_XXXX", 'SUFFIX' => ".fastq.tar.gz"
 )->filename;
-my $TEMP_FILE = File::Spec->catfile( $TEMP_DIR, $filename);
-`touch $TEMP_FILE`;
+
+sub makeTempZipFile {
+    my $fileName = File::Temp->new(
+        'TEMPLATE' => "dummyZipFile_XXXX", 'SUFFIX' => ".fastq.tar.gz"
+    )->filename;
+    $fileName = File::Spec->catfile( $TEMP_DIR, $fileName);
+    `touch $fileName`;
+    if (! -f $fileName) {
+        croak "Coudn't create temp file $fileName needed for testing.";
+    }
+    return $fileName;
+}
+my $TEMP_FILE = makeTempZipFile();
+
+sub makeTempUploadDir {
+    my $dir = File::Spec->catdir($TEMP_DIR, '00000000-0000-0000-0000-000000000000');
+    mkdir( $dir ) or
+            croak "Coudn't create temp dir $dir needed for testing.";
+    my $fileName = File::Spec->catfile( $dir, 'analysis.xml');
+    `touch $fileName`;
+    if (! -f $fileName) {
+        croak "Coudn't create temp file $fileName needed for testing.";
+    }
+    $fileName = File::Spec->catfile( $dir, 'run.xml');
+    `touch $fileName`;
+    if (! -f $fileName) {
+        croak "Coudn't create temp file $fileName needed for testing.";
+    }
+    $fileName = File::Spec->catfile( $dir, 'experiment.xml');
+    `touch $fileName`;
+    if (! -f $fileName) {
+        croak "Coudn't create temp file $fileName needed for testing.";
+    }
+    return $dir;
+}
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $CONFIG = Bio::SeqWare::Config->new();
@@ -53,22 +86,44 @@ my %MOCK_UPLOAD_REC = (
 
 # Fake tested method returs
 sub mock__getAssociatedFileId_undef { return undef; }
-sub mock__getAssociatedFileId { return -5; }
+sub mock__getAssociatedFileId       { return -5; }
 sub mock__getFilePath_undef { return undef; }
-sub mock__getFilePath { return $TEMP_FILE; }
-sub mock__getAssociatedProcessingFileIds_undef { return (undef, undef); }
-sub mock__getAssociatedProcessingFileIds_1of2 { return (-201, undef); }
-sub mock__getAssociatedProcessingFileIds_2of2 { return (-201, -202); }
+sub mock__getFilePath       { return $TEMP_FILE; }
+sub mock__getAssociatedProcessingFilesIds_undef { return ( undef, undef ); }
+sub mock__getAssociatedProcessingFilesIds_1of2  { return (  -201, undef ); }
+sub mock__getAssociatedProcessingFilesIds_2of2  { return (  -201,  -202 ); }
+
+sub mock__deleteUploadRec          { return 1; }
+sub mock__deleteFileRec            { return 1; }
+sub mock__deleteUploadFileRec      { return 1; }
+sub mock__deleteProcessingFilesRec { return 1; }
+sub mock__deleteProcessingFilesRec_die {
+     my $self = shift;
+     $self->{'error'} = 'delete_processing_files';
+     croak "Not 1 but 0 rows returned when attempting delete from processing_files, id -201.\n";
+}
 
 #
 # TESTS
 #
 
 subtest( '_changeUploadRerunStage()' => \&test__changeUploadRerunStage );
-subtest( '_getAssociatedFileId()'    => \&test__getAssociatedFileId );
-subtest( '_getFilePath()'            => \&test__getFilePath );
-subtest( '_getRerunData()'           => \&test__getRerunData );
-subtest( '_getAssociatedProcessingFileIds()' => \&test__getAssociatedProcessingFileIds );
+
+subtest( '_getAssociatedFileId()'            => \&test__getAssociatedFileId );
+subtest( '_getFilePath()'                    => \&test__getFilePath );
+subtest( '_getAssociatedProcessingFilesIds()' => \&test__getAssociatedProcessingFilesIds );
+subtest( '_getRerunData()'                   => \&test__getRerunData );
+
+subtest( '_deleteUploadRec()'          => \&test__deleteUploadRec );
+subtest( '_deleteFileRec()'            => \&test__deleteFileRec );
+subtest( '_deleteUploadFileRec()'      => \&test__deleteUploadFileRec );
+subtest( '_deleteProcessingFilesRec()' => \&test__deleteProcessingFilesRec );
+subtest( '_cleanDatabase()'            => \&test__cleanDatabase );
+
+subtest( '_deleteFastqZipFile()'       => \&test__deleteFastqZipFile );
+subtest( '_deleteUploadDir()'          => \&test__deleteUploadDir );
+
+
 
 #
 # SUBTESTS
@@ -83,8 +138,8 @@ sub test__getRerunData {
             'upload' => \%MOCK_UPLOAD_REC,
             'file_id' => undef,
             'file_path' => undef,
-            'processing_file_id_1' => undef,
-            'processing_file_id_2' => undef,
+            'processing_files_id_1' => undef,
+            'processing_files_id_2' => undef,
         };
         my $obj = $CLASS->new( $OPT_HR );
         no warnings 'redefine';
@@ -103,8 +158,8 @@ sub test__getRerunData {
             'upload' => \%MOCK_UPLOAD_REC,
             'file_id' => -5,
             'file_path' => undef,
-            'processing_file_id_1' => undef,
-            'processing_file_id_2' => undef,
+            'processing_files_id_1' => undef,
+            'processing_files_id_2' => undef,
         };
         no warnings 'redefine';
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
@@ -118,44 +173,44 @@ sub test__getRerunData {
         }
     }
 
-    # upload_file and file by no processing_file1
+    # upload_file and file but no processing_files
     {
         my $rerunDataHR = {
             'upload' => \%MOCK_UPLOAD_REC,
             'file_id' => -5,
             'file_path' => $TEMP_FILE,
-            'processing_file_id_1' => undef,
-            'processing_file_id_2' => undef,
+            'processing_files_id_1' => undef,
+            'processing_files_id_2' => undef,
         };
         no warnings 'redefine';
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
-        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_undef;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFilesIds = \&mock__getAssociatedProcessingFilesIds_undef;
         my $obj = $CLASS->new( $OPT_HR );
         {
-            my $testThatThisSub = "Retrieves expeted data record if no processing_file1 record.";
+            my $testThatThisSub = "Retrieves expeted data record if no processing_files_1 record.";
             my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
             my $want = $rerunDataHR;
             is_deeply( $got, $want, $testThatThisSub);
         }
     }
 
-    # upload_file, file processing_file1 but no processing_file2
+    # upload_file, file processing_files_1 but no processing_files_2
     {
         my $rerunDataHR = {
             'upload' => \%MOCK_UPLOAD_REC,
             'file_id' => -5,
             'file_path' => $TEMP_FILE,
-            'processing_file_id_1' => -201,
-            'processing_file_id_2' => undef,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => undef,
         };
         no warnings 'redefine';
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
-        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_1of2;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFilesIds = \&mock__getAssociatedProcessingFilesIds_1of2;
         my $obj = $CLASS->new( $OPT_HR );
         {
-            my $testThatThisSub = "Retrieves expeted data record if no processing_file2 record.";
+            my $testThatThisSub = "Retrieves expeted data record if no processing_files_2 record.";
             my $got = $obj->_getRerunData( $MOCK_DBH, \%MOCK_UPLOAD_REC );
             my $want = $rerunDataHR;
             is_deeply( $got, $want, $testThatThisSub);
@@ -168,13 +223,13 @@ sub test__getRerunData {
             'upload' => \%MOCK_UPLOAD_REC,
             'file_id' => -5,
             'file_path' => $TEMP_FILE,
-            'processing_file_id_1' => -201,
-            'processing_file_id_2' => -202,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
         };
         no warnings 'redefine';
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedFileId = \&mock__getAssociatedFileId;
         local *Bio::SeqWare::Uploads::CgHub::Fastq::_getFilePath = \&mock__getFilePath;
-        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFileIds = \&mock__getAssociatedProcessingFileIds_2of2;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_getAssociatedProcessingFilesIds = \&mock__getAssociatedProcessingFilesIds_2of2;
         my $obj = $CLASS->new( $OPT_HR );
         {
             my $testThatThisSub = "Retrieves expeted data record if have all info.";
@@ -426,60 +481,60 @@ sub test__getFilePath {
 
 }
 
-sub test__getAssociatedProcessingFileIds {
+sub test__getAssociatedProcessingFilesIds {
     plan( tests => 9 );
 
-    # Good run returning pair of processing_file ids
+    # Good run returning pair of processing_files ids
     {
         my $fileId   = -5;
-        my $processingFileId1 = -201;
-        my $processingFileId2 = -202;
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = -202;
         my @dbSession = (
             {
                 'statement'    => qr/SELECT processing_files_id/msi,
                 'bound_params' => [ $fileId ],
-                'results'  => [[ 'processing_files_id' ], [ $processingFileId1 ], [$processingFileId2]],
+                'results'  => [[ 'processing_files_id' ], [ $processingFilesId1 ], [$processingFilesId2]],
             }
         );
 
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
         my $obj = $CLASS->new( $OPT_HR );
         {
-            my $testThatThisSub = "Correct pair of processing_file records returned (given fixed DBIO output)";
-            my @got = $obj->_getAssociatedProcessingFileIds( $MOCK_DBH, $fileId );
-            my @want = ($processingFileId1, $processingFileId2);
+            my $testThatThisSub = "Correct pair of processing_files records returned (given fixed DBIO output)";
+            my @got = $obj->_getAssociatedProcessingFilesIds( $MOCK_DBH, $fileId );
+            my @want = ($processingFilesId1, $processingFilesId2);
             is( @got, @want, $testThatThisSub);
         }
     }
 
-    # Good run returning one processing_file id
+    # Good run returning one processing_files id
     {
         my $fileId   = -5;
-        my $processingFileId1 = -201;
-        my $processingFileId2;
+        my $processingFilesId1 = -201;
+        my $processingFilesId2;
         my @dbSession = (
             {
                 'statement'    => qr/SELECT processing_files_id/msi,
                 'bound_params' => [ $fileId ],
-                'results'  => [[ 'processing_files_id' ], [ $processingFileId1 ]],
+                'results'  => [[ 'processing_files_id' ], [ $processingFilesId1 ]],
             }
         );
 
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
         my $obj = $CLASS->new( $OPT_HR );
         {
-            my $testThatThisSub = "Correct single processing_file records returned (given fixed DBIO output)";
-            my @got = $obj->_getAssociatedProcessingFileIds( $MOCK_DBH, $fileId );
-            my @want = ($processingFileId1, $processingFileId2);
+            my $testThatThisSub = "Correct single processing_files records returned (given fixed DBIO output)";
+            my @got = $obj->_getAssociatedProcessingFilesIds( $MOCK_DBH, $fileId );
+            my @want = ($processingFilesId1, $processingFilesId2);
             is( @got, @want, $testThatThisSub);
         }
     }
 
-    # Good run returning no processing_file ids
+    # Good run returning no processing_files ids
     {
         my $fileId   = -5;
-        my $processingFileId1;
-        my $processingFileId2;
+        my $processingFilesId1;
+        my $processingFilesId2;
         my @dbSession = (
             {
                 'statement'    => qr/SELECT processing_files_id/msi,
@@ -491,14 +546,14 @@ sub test__getAssociatedProcessingFileIds {
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
         my $obj = $CLASS->new( $OPT_HR );
         {
-            my $testThatThisSub = "Correct no processing_file records returned (given fixed DBIO output)";
-            my @got = $obj->_getAssociatedProcessingFileIds( $MOCK_DBH, $fileId );
-            my @want = ($processingFileId1, $processingFileId2);
+            my $testThatThisSub = "Correct no processing_files records returned (given fixed DBIO output)";
+            my @got = $obj->_getAssociatedProcessingFilesIds( $MOCK_DBH, $fileId );
+            my @want = ($processingFilesId1, $processingFilesId2);
             is( @got, @want, $testThatThisSub);
         }
     }
 
-    # Error if returns more than two processing_file_ids
+    # Error if returns more than two processing_files_ids
     {
         my $fileId   = -5;
         my @dbSession = (
@@ -512,16 +567,16 @@ sub test__getAssociatedProcessingFileIds {
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-            $obj->_getAssociatedProcessingFileIds( $MOCK_DBH, $fileId );
+            $obj->_getAssociatedProcessingFilesIds( $MOCK_DBH, $fileId );
         };
         my $error = $@;
         {
-            my $testThatThisSub = "Throws descriptive error if more than two processing_file link records found";
+            my $testThatThisSub = "Throws descriptive error if more than two processing_files link records found";
             my $got = $error;
             my $want = qr/Found more than two processing records linked to fileId $fileId\./;
             like( $got, $want, $testThatThisSub);
         }{
-            my $testThatThisSub = "Sets correct error tag if more than two processing_file link records found";
+            my $testThatThisSub = "Sets correct error tag if more than two processing_files link records found";
             my $got = $obj->{'error'};
             my $want = 'too_many_processing_links';
             is( $got, $want, $testThatThisSub);
@@ -532,17 +587,17 @@ sub test__getAssociatedProcessingFileIds {
     {
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_getAssociatedProcessingFileIds();
+             $obj->_getAssociatedProcessingFilesIds();
         };
         {
             my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
             my $got = $@;
-            my $want = qr/^_getAssociatedProcessingFileIds\(\) missing \$dbh parameter\./;
+            my $want = qr/^_getAssociatedProcessingFilesIds\(\) missing \$dbh parameter\./;
             like( $got, $want, $testThatThisSub);
         }{
             my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";
             my $got = $obj->{'error'};
-            my $want = 'param__getAssociatedProcessingFileIds_dbh';
+            my $want = 'param__getAssociatedProcessingFilesIds_dbh';
             is( $got, $want, $testThatThisSub);
         }
     }
@@ -551,17 +606,17 @@ sub test__getAssociatedProcessingFileIds {
     {
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_getAssociatedProcessingFileIds( $MOCK_DBH );
+             $obj->_getAssociatedProcessingFilesIds( $MOCK_DBH );
         };
         {
             my $testThatThisSub = "Throws descriptive error if no fileId parameter passed.";
             my $got = $@;
-            my $want = qr/^_getAssociatedProcessingFileIds\(\) missing \$fileId parameter\./;
+            my $want = qr/^_getAssociatedProcessingFilesIds\(\) missing \$fileId parameter\./;
             like( $got, $want, $testThatThisSub);
         }{
             my $testThatThisSub = "Sets correct error tag if no fileId parameter passed.";
             my $got = $obj->{'error'};
-            my $want = 'param__getAssociatedProcessingFileIds_fileId';
+            my $want = 'param__getAssociatedProcessingFilesIds_fileId';
             is( $got, $want, $testThatThisSub);
         }
     }
@@ -872,3 +927,787 @@ sub test__changeUploadRerunStage {
     }
 }
 
+sub test__deleteUploadRec {
+
+    plan( tests => 3 );
+
+    # Good run
+    {
+        my $uploadId = -21;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM upload WHERE upload_id = ?",
+              'bound_params' => [ $uploadId ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteUploadRec( $MOCK_DBH, $uploadId ), $testThatThisSub );
+        }
+    }
+
+    # Dies with error.
+    {
+        my $uploadId = -21;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM upload WHERE upload_id = ?",
+              'bound_params' => [ $uploadId ],
+              'results'  => [ [] ]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteUploadRec( $MOCK_DBH, $uploadId );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if no upload record deleted.";
+            my $got = $error;
+            my $want = qr/^Not 1 but 0 rows returned when attempting delete from upload\, id $uploadId\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no upload record deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_upload';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}
+
+sub test__deleteFileRec {
+
+    plan( tests => 3 );
+
+    # Good run
+    {
+        my $fileId = -5;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM file WHERE file_id = ?",
+              'bound_params' => [ $fileId ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteFileRec( $MOCK_DBH, $fileId ), $testThatThisSub );
+        }
+    }
+
+    # Dies with error.
+    {
+        my $fileId = -5;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM file WHERE file_id = ?",
+              'bound_params' => [ $fileId ],
+              'results'  => [ [] ]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteFileRec( $MOCK_DBH, $fileId );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if no file record deleted.";
+            my $got = $error;
+            my $want = qr/^Not 1 but 0 rows returned when attempting delete from file\, id $fileId\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no file record deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_file';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}
+
+sub test__deleteUploadFileRec {
+
+    plan( tests => 3 );
+
+    # Good run
+    {
+        my $uploadId = -21;
+        my $fileId = -5;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM upload_file WHERE upload_id = ? AND file_id = ?",
+              'bound_params' => [ $uploadId, $fileId ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteUploadFileRec( $MOCK_DBH, $uploadId, $fileId ), $testThatThisSub );
+        }
+    }
+
+    # Dies with error.
+    {
+        my $uploadId = -21;
+        my $fileId = -5;
+        my @dbSession = (
+            { 'statement'    => "DELETE FROM upload_file WHERE upload_id = ? AND file_id = ?",
+              'bound_params' => [ $uploadId, $fileId ],
+              'results'  => [ [] ]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteUploadFileRec( $MOCK_DBH, $uploadId, $fileId );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if no upload_file record deleted.";
+            my $got = $error;
+            my $want = qr/^Not 1 but 0 rows returned when attempting delete from upload_file\, upload $uploadId\, file $fileId\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no file record deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_upload_file';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+}
+
+sub test__deleteProcessingFilesRec {
+
+    plan( tests => 7 );
+
+    # Good run with 2 Ids
+    {
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = -202;
+        my @dbSession = (
+            {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId1 ],
+              'results'  => [[ 'rows' ], []]
+            },{
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId2 ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteProcessingFilesRec( $MOCK_DBH, $processingFilesId1, $processingFilesId2 ), $testThatThisSub );
+        }
+    }
+
+    # Good run with first Id
+    {
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = undef;
+        my @dbSession = (
+            {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId1 ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteProcessingFilesRec( $MOCK_DBH, $processingFilesId1, $processingFilesId2 ), $testThatThisSub );
+        }
+    }
+
+    # Good run with second Id
+    {
+        my $processingFilesId1 = undef;
+        my $processingFilesId2 = -202;
+        my @dbSession = (
+            {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId2 ],
+              'results'  => [[ 'rows' ], []]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 1 when appears to work";
+            ok( $obj->_deleteProcessingFilesRec( $MOCK_DBH, $processingFilesId1, $processingFilesId2 ), $testThatThisSub );
+        }
+    }
+
+    # Dies with error if bad second id.
+    {
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = -202;
+        my @dbSession = (
+            {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId1 ],
+              'results'  => [[ 'rows' ], []]
+            },{
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId2 ],
+              'results'  => [[]]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteProcessingFilesRec( $MOCK_DBH, $processingFilesId1, $processingFilesId2 );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if no processing_files record 2 deleted.";
+            my $got = $error;
+            my $want = qr/^Not 1 but 0 rows returned when attempting delete from processing_files\, id $processingFilesId2\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no processing files record 2 deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_processing_files';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Dies with error if bad first id.
+    {
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = -202;
+        my @dbSession = (
+            {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId1 ],
+              'results'  => [[]]
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteProcessingFilesRec( $MOCK_DBH, $processingFilesId1, $processingFilesId2 );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if no processing_files record 1 deleted.";
+            my $got = $error;
+            my $want = qr/^Not 1 but 0 rows returned when attempting delete from processing_files\, id $processingFilesId1\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no processing files record 1 deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_processing_files';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+}
+
+sub test__cleanDatabase {
+    plan( tests => 14 );
+
+    # Smoke test, with everything
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
+        };
+
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteProcessingFilesRec = \&mock__deleteProcessingFilesRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadFileRec = \&mock__deleteUploadFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteFileRec = \&mock__deleteFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadRec = \&mock__deleteUploadRec;
+
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Succeds if all data provided.";
+            ok( $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR ), $testThatThisSub);
+        }
+    }
+
+    # Smoke test, everything, minus one processing record.
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => undef,
+        };
+
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteProcessingFilesRec = \&mock__deleteProcessingFilesRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadFileRec = \&mock__deleteUploadFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteFileRec = \&mock__deleteFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadRec = \&mock__deleteUploadRec;
+
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Succeds if all data provided.";
+            ok( $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR ), $testThatThisSub);
+        }
+    }
+
+    # Delete with no file record => no upload_file or processing_files by reference constraint.
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => undef,
+            'file_path' => undef,
+            'processing_files_id_1' => undef,
+            'processing_files_id_2' => undef,
+        };
+
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadRec = \&mock__deleteUploadRec;
+
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Succeds if no data but upload_id provided.";
+            ok( $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR ), $testThatThisSub);
+        }
+    }
+
+    # Delete with no processing_file records.
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_files_id_1' => undef,
+            'processing_files_id_2' => undef,
+        };
+
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadFileRec = \&mock__deleteUploadFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteFileRec = \&mock__deleteFileRec;
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteUploadRec = \&mock__deleteUploadRec;
+
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Succeds if no processing_files data provided.";
+            ok( $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR ), $testThatThisSub);
+        }
+    }
+
+    # Error propagation - from within this subroutine
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [],
+            }, {
+               'statement' => 'ROLLBACK',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
+        };
+
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if transaction wrapping fails.";
+            my $got = $error;
+            my $want = qr/^_cleanDatabase failed to delete the upload record for upload $rerunDataHR->{'upload'}->{'upload_id'}\. ...+/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if transaction wrapping fails.";
+            my $got = $obj->{'error'};
+            my $want = 'unknown_rerun__cleanDatabase';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Error propagation - from within called subroutine
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+               'statement' => 'ROLLBACK',
+                'results'  => [[]],
+            }
+        );
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+
+        my $rerunDataHR = {
+            'upload' => \%MOCK_UPLOAD_REC,
+            'file_id' => -5,
+            'file_path' => $TEMP_FILE,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
+        };
+
+        no warnings 'redefine';
+        local *Bio::SeqWare::Uploads::CgHub::Fastq::_deleteProcessingFilesRec = \&mock__deleteProcessingFilesRec_die;
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if transaction wrapping fails.";
+            my $got = $error;
+            my $want = qr/^_cleanDatabase failed to delete the upload record for upload $rerunDataHR->{'upload'}->{'upload_id'}. Not 1 but 0 rows returned when attempting delete from processing_files\, id -201\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if transaction wrapping fails.";
+            my $got = $obj->{'error'};
+            my $want = 'delete_processing_files';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanDatabase();
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
+            my $got = $@;
+            my $want = qr/^_cleanDatabase\(\) missing \$dbh parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param__cleanDatabase_dbh';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $rerunDataHR
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanDatabase( $MOCK_DBH );
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no rerunDataHR parameter passed.";
+            my $got = $@;
+            my $want = qr/^_cleanDatabase\(\) missing \$rerunDataHR parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no rerunDataHR parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param__cleanDatabase_rerunDataHR';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $rerunDataHr->upload->upload_id
+    {
+        my $rerunDataHR = {};
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanDatabase( $MOCK_DBH, $rerunDataHR );
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no rerunDataHr->upload->upload_id parameter passed.";
+            my $got = $@;
+            my $want = qr/^_cleanDatabase\(\) missing \$rerunDataHR->upload->upload_id parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no rerunDataHR->upload->upload_id parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param__cleanDatabase_rerunDataHR_upload_id';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}
+
+sub test__deleteFastqZipFile {
+    plan( tests => 12 );
+
+    # unlink fastq.tar.gz dummy file
+    {
+        my $file = makeTempZipFile();
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            ok( -f $file, "zip file exists before deletion.");
+        }
+        {
+            my $testThatThisSub = "Returns 1 when deletes file";
+            my $got = $obj->_deleteFastqZipFile( $file );
+            my $want = 1;
+            is( $got, $want, $testThatThisSub);
+        }
+        {
+            ok( ! -e $file, "zip file gone after deletion.");
+        }
+    }
+
+    # raise errors from failed deletion
+    {
+        my $file = "/no/such/fastq.tar.gz";
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            ok( ! -f $file, "zip file does not exists before attempted deletion.");
+        }
+        eval {
+            $obj->_deleteFastqZipFile( $file );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if delete fails";
+            my $got = $error;
+            my $want = qr/^Not removed \- $file \- .+/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if delete fails";
+            my $got = $obj->{'error'};
+            my $want = 'rm_fastq';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # fastq zipfile not zip file
+    {
+        my $fileName = "/dummy/file.1.fastq";
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteFastqZipFile( $fileName );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if filename not a gzip file.";
+            my $got = $error;
+            my $want = qr/^Not removed as filename doean\'t match \*fastq\*\.tar\.gz \- $fileName/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if filename not a gzip file.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_fastq_bad_filename_ext';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # fastq zipfile not fastq
+    {
+        my $fileName = "/dummy/file.tar.gz";
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteFastqZipFile( $fileName );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if filename not a fastq file.";
+            my $got = $error;
+            my $want = qr/^Not removed as filename doean\'t match \*fastq\*\.tar\.gz \- $fileName/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if filename not a fastq file.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_fastq_bad_filename_ext';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # fastq zipfile not absolute
+    {
+        my $fileName = "file.fastq.tar.gz";
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteFastqZipFile( $fileName );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if filename not an absolute path.";
+            my $got = $error;
+            my $want = qr/^Not removed as filename not absolute - $fileName/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if filename not an absolute path.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_fastq_bad_filename_abs';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}
+
+sub test__deleteUploadDir {
+    plan( tests => 9 );
+
+    # Smoke test - delete upload dir
+    {
+        my $dir = makeTempUploadDir();
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            ok( -d $dir, "upload dir exists before deletion.");
+        }
+        {
+            my $testThatThisSub = "Returns number of files deleted uplaod dir";
+            my $got = $obj->_deleteUploadDir( $dir );
+            my $want = 4; # three files plus directory
+            is( $got, $want, $testThatThisSub);
+        }
+        {
+            ok( ! -d $dir, "uplaod dir gone after deletion.");
+        }
+    }
+
+
+    # Error when trying to delete upload dir
+    {
+        my $dir = makeTempUploadDir();
+        `chmod -w $dir/analysis.xml`;
+        if ( (! -f "$dir/analysis.xml") || ( -w "$dir/analysis.xml")) {
+            die( "Prior to test, no-write file must exist" );
+        }
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteUploadDir( $dir );
+        };
+        my $error = $@;
+
+        {
+            my $testThatThisSub = "Throws descriptive error if dir not deleted";
+            my $got = $error;
+            my $want = qr/^Not removed - $dir.*not empty/s;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if dir not deleted.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_upload_dir';
+            is( $got, $want, $testThatThisSub);
+        }
+
+        # cleanup
+        `chmod +w $dir/analysis.xml`;
+        if ( ! -w "$dir/analysis.xml" ) {
+            die( "After test, file must be writeable." );
+        }
+    }
+
+    # upload dir not absolute
+    {
+        my $dir = "relative/not_a_real_dir";
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteUploadDir( $dir );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if filename not an absolute path.";
+            my $got = $error;
+            my $want = qr/^Not removed as dir not absolute \- $dir/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if dir not an absolute path.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_upload_dir_bad_filename_abs';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # upload dir not uuid
+    {
+        my $dir = "/not/a/uuid/some_fake_absolute_dir";
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_deleteUploadDir( $dir );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if dir not formated as uuid";
+            my $got = $error;
+            my $want = qr/^Not removed as doesn\'t look like a uuid \- $dir/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if dir not formated as uuid.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_upload_dir_bad_filename_format';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}

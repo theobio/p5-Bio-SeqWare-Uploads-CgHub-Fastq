@@ -14,7 +14,7 @@ $Text::Wrap::columns = 132;      #    Wrap at column 132
 $Text::Wrap::huge = 'overflow';  #    Don't break words >= 132 characters
 
 use File::Spec;                   # Normal path handling
-use File::Path qw(make_path);     # Create multiple-directories at once
+use File::Path qw(make_path remove_tree); # Recursive directory birth/death
 use File::Copy qw(cp);            # Copy a file
 use File::ShareDir qw(dist_dir);  # Access data files from install.
 use Cwd;                          # get current working directory.
@@ -747,12 +747,16 @@ sub doRerun {
     my $self = shift;
     my $dbh = shift;
 
+    unless ($dbh) {
+        $self->{'error'} = "param_doRerun_dbh";
+        croak ("doRerun() missing \$dbh parameter.");
+    }
+
     eval {
         my $uploadRecord    = $self->_tagRerunUpload( $dbh );
         my $rerunDataHR     = $self->_getRerunData( $dbh, $uploadRecord );
-        $self->_cleanFileSystem( $dbh, $rerunDataHR->{'file_path'} );
-        $self->_cleanDatabase( $rerunDataHR );
-        $self->_removeUploadRecord( $uploadRecord );
+        $self->_cleanFileSystem( $dbh, $rerunDataHR );
+        $self->_cleanDatabase( $dbh, $rerunDataHR );
     };
 
     if ($@) {
@@ -924,8 +928,8 @@ uploadHR data. Missing data indicated by key => undef.
                      ->{'tstmp'}
          ->{'file_id'}
          ->{'file_path'}
-         ->{'processing_file_id_1'}
-         ->{'processing_file_id_2'}
+         ->{'processing_files_id_1'}
+         ->{'processing_files_id_2'}
 
 =cut
 
@@ -949,8 +953,8 @@ sub _getRerunData {
         'upload' => $uploadHR,
         'file_id' => undef,
         'file_path' => undef,
-        'processing_file_id_1' => undef,
-        'processing_file_id_2' => undef,
+        'processing_files_id_1' => undef,
+        'processing_files_id_2' => undef,
     };
 
     $rerunDataHR->{'file_id'} = $self->_getAssociatedFileId( $dbh, $rerunDataHR->{'upload'}->{'upload_id'});
@@ -961,9 +965,9 @@ sub _getRerunData {
     if (! $rerunDataHR->{'file_path'}) {
         return $rerunDataHR;
     }
-    my ($id1, $id2) = $self->_getAssociatedProcessingFileIds( $dbh, $rerunDataHR->{'file_id'});
-    $rerunDataHR->{'processing_file_id_1'} = $id1;
-    $rerunDataHR->{'processing_file_id_2'} = $id2;
+    my ($id1, $id2) = $self->_getAssociatedProcessingFilesIds( $dbh, $rerunDataHR->{'file_id'});
+    $rerunDataHR->{'processing_files_id_1'} = $id1;
+    $rerunDataHR->{'processing_files_id_2'} = $id2;
 
     return $rerunDataHR;
 }
@@ -1066,9 +1070,9 @@ sub _getFilePath {
     return $filePath;
 }
 
-=head2 _getAssociatedProcessingFileIds
+=head2 _getAssociatedProcessingFilesIds
 
-   my ($id1, $id2) = $self->_getAssociatedProcessingFileIds( $dbh, $fileId)
+   my ($id1, $id2) = $self->_getAssociatedProcessingFilesIds( $dbh, $fileId)
 
 Looks up the (0 to 2) file records in processing_files associated with the given
 file id and returns the ids of those record. If more than 2 records are
@@ -1077,23 +1081,23 @@ If no records are found, returns (undef, undef).
 
 =cut
 
-sub _getAssociatedProcessingFileIds {
+sub _getAssociatedProcessingFilesIds {
     my $self = shift;
     my $dbh = shift;
     my $fileId = shift;
 
     unless ($dbh) {
-        $self->{'error'} = "param__getAssociatedProcessingFileIds_dbh";
-        croak ("_getAssociatedProcessingFileIds() missing \$dbh parameter.");
+        $self->{'error'} = "param__getAssociatedProcessingFilesIds_dbh";
+        croak ("_getAssociatedProcessingFilesIds() missing \$dbh parameter.");
     }
 
     unless ($fileId) {
-        $self->{'error'} = "param__getAssociatedProcessingFileIds_fileId";
-        croak ("_getAssociatedProcessingFileIds() missing \$fileId parameter.");
+        $self->{'error'} = "param__getAssociatedProcessingFilesIds_fileId";
+        croak ("_getAssociatedProcessingFilesIds() missing \$fileId parameter.");
     }
 
-    my $processingFileId1;
-    my $processingFileId2;
+    my $processingFilesId1;
+    my $processingFilesId2;
 
     my $processingFilesIdSQL =
        "SELECT processing_files_id
@@ -1108,15 +1112,15 @@ sub _getAssociatedProcessingFileIds {
     }
     my $rowHR = $processingFilesIdSTH->fetchrow_hashref();
     if ($rowHR->{'processing_files_id'}) {
-        $processingFileId1 = $rowHR->{'processing_files_id'}; # Default, undef
+        $processingFilesId1 = $rowHR->{'processing_files_id'}; # Default, undef
         $rowHR = $processingFilesIdSTH->fetchrow_hashref();
         if ($rowHR->{'processing_files_id'}) {
-            $processingFileId2 = $rowHR->{'processing_files_id'}; # Default, undef
+            $processingFilesId2 = $rowHR->{'processing_files_id'}; # Default, undef
         }
     }
     $processingFilesIdSTH->finish();
 
-    return ($processingFileId1, $processingFileId2);
+    return ($processingFilesId1, $processingFilesId2);
 }
 
 =head2 _cleanDatabase
@@ -1143,7 +1147,7 @@ for deletion is not 1, then all deletions will be rolled back and this will
 exit with error. It is also an error if the upload_id is not provided.
 
 Note: No checks are made to ensure that the provided data are related, i.e. any
-id's can be provided. but since there are foreign key constraints between
+id's can be provided. However, there are foreign key constraints between
 processing_files and file, and between upload and file, it is unlikely that
 deletions will all complete if not correctly associated.
 
@@ -1165,7 +1169,8 @@ sub _cleanDatabase {
         croak ("_cleanDatabase() missing \$rerunDataHR parameter.");
     }
 
-    unless ($rerunDataHR->{'upload'}->{'upload_id'}) {
+    my $uploadId = $rerunDataHR->{'upload'}->{'upload_id'};
+    unless ( $uploadId ) {
         $self->{'error'} = "param__cleanDatabase_rerunDataHR_upload_id";
         croak ("_cleanDatabase() missing \$rerunDataHR->upload->upload_id parameter.");
     }
@@ -1174,81 +1179,27 @@ sub _cleanDatabase {
         $dbh->begin_work();
         $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
 
-        # Processing files 1 and 2
-        {
-            my $deleteProcessingFilesSQL =
-                "DELETE FROM processing_files
-                WHERE processing_files_id = ?";
-            my $deleteProcessingFilesSTH = $dbh->prepare( $deleteProcessingFilesSQL );
-
-            if ($rerunDataHR->{'processing_file_id_2'} ) {
-                $deleteProcessingFilesSTH->execute( $rerunDataHR->{'processing_file_id_2'} );
-                if ( $deleteProcessingFilesSTH->rows() != 1) {
-                    $self->{'error'} = "deleting_processing_files_2";
-                    croak "$deleteProcessingFilesSTH->rows() returned upon delete of processing_files_id rerunDataHR->{'processing_file_id_2'}.\n";
-                }
-            }
-            if ($rerunDataHR->{'processing_file_id_1'} ) {
-                $deleteProcessingFilesSTH->execute( $rerunDataHR->{'processing_file_id_1'} );
-                if ( $deleteProcessingFilesSTH->rows() != 1) {
-                    $self->{'error'} = "deleting_processing_files_1";
-                    croak "$deleteProcessingFilesSTH->rows() returned upon delete of processing_files_id rerunDataHR->{'processing_file_id_1'}.\n";
-                }
-            }
-            $deleteProcessingFilesSTH->finish();
+        # Use processing_files ids to indicate an processing_files linker record exists and should be deleted.
+        my $processingFilesId1 = $rerunDataHR->{'processing_files_id_1'};
+        my $processingFilesId2 = $rerunDataHR->{'processing_files_id_2'};
+        if ($processingFilesId1 || $processingFilesId2) {
+            $self->_deleteProcessingFilesRec( $dbh, $processingFilesId1, $processingFilesId2 );
         }
 
-        # Upload file
-        {
-            my $deleteUploadFileSQL =
-                "DELETE FROM upload_file
-                WHERE upload_id = ? and file_id = ?";
-            my $deleteUploadFileSTH = $dbh->prepare( $deleteUploadFileSQL );
-
-            if ($rerunDataHR->{'file_id'} ) {
-                $deleteUploadFileSTH->execute( $rerunDataHR->{'upload'}->{'upload_id'}, $rerunDataHR->{'file_id'} );
-                if ( $deleteUploadFileSTH->rows() != 1) {
-                    $self->{'error'} = "deleting_upload_file";
-                    croak "$deleteUploadFileSTH->rows() returned upon delete of upload_file with"
-                          . "upload_id $rerunDataHR->{'upload'}->{'upload_id'}, file_id $rerunDataHR->{'file_id'}.\n";
-                }
-            }
-            $deleteUploadFileSTH->finish();
+        # Use file_id to indicate an upload_file linker record exists and should be deleted.
+        my $fileId = $rerunDataHR->{'file_id'};
+        if ($fileId) {
+            $self->_deleteUploadFileRec( $dbh, $uploadId, $fileId );
         }
 
-        # File
-        {
-            my $deleteFileSQL =
-                "DELETE FROM file
-                WHERE file_id = ?";
-            my $deleteFileSTH = $dbh->prepare( $deleteFileSQL );
-
-            if ($rerunDataHR->{'file_path'} ) {
-                $deleteFileSTH->execute( $rerunDataHR->{'file_id'} );
-                if ( $deleteFileSTH->rows() != 1) {
-                    $self->{'error'} = "deleting_file";
-                    croak "$deleteFileSTH->rows() returned upon delete of file_id rerunDataHR->{'file_id'}.\n";
-                }
-            }
-            $deleteFileSTH->finish();
+        # Use file_path to indicate a real file record exists and should be deleted.
+        my $filePath = $rerunDataHR->{'file_path'};
+        if ($filePath) {
+            $self->_deleteFileRec( $dbh, $fileId );
         }
 
-        # Upload
-        {
-            my $deleteUploadSQL =
-                "DELETE FROM upload
-                WHERE upload_id = ?";
-            my $deleteUploadSTH = $dbh->prepare( $deleteUploadSQL );
-
-            if ($rerunDataHR->{'file_path'} ) {
-                $deleteUploadSTH->execute( $rerunDataHR->{'upload'}->{'upload_id'} );
-                if ( $deleteUploadSTH->rows() != 1) {
-                    $self->{'error'} = "deleting_upload";
-                    croak "$deleteUploadSTH->rows() returned upon delete of upload_id $rerunDataHR->{'upload'}->{'upload_id'}.\n";
-                }
-            }
-            $deleteUploadSTH->finish();
-        }
+        # Checked for uploadId as method param.
+        $self->_deleteUploadRec( $dbh, $uploadId );
 
         $dbh->commit();
     };
@@ -1270,6 +1221,302 @@ sub _cleanDatabase {
     return 1;
 }
 
+=head2 _deleteProcessingFilesRec
+
+    $self->_deleteProcessingFilesRec( $dbh, $pfId1, pfId2 );
+
+Deletes the processing_files table records with the specified ids. Expects 1 and
+only 1 record to be deleted for each defined $pfId provided. otherwise throws
+error and sets $self->{'error'}.
+
+Performs no parameter checks, assumes $dbh and $pfId1 and pfId2 have been
+checked prior, but ok if one or both of the ids are undef.
+
+Returns 1 if doesn't die.
+
+=cut
+
+sub _deleteProcessingFilesRec {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $processingFilesId1 = shift;
+    my $processingFilesId2 = shift;
+
+    my $deleteProcessingFilesSQL =
+        "DELETE FROM processing_files WHERE processing_files_id = ?";
+    my $deleteProcessingFilesSTH = $dbh->prepare( $deleteProcessingFilesSQL );
+
+    if ( $processingFilesId1 ) {
+        $deleteProcessingFilesSTH->execute( $processingFilesId1 );
+        my $rowCount = $deleteProcessingFilesSTH->rows();
+        if ( $rowCount != 1) {
+            $self->{'error'} = "delete_processing_files";
+            croak "Not 1 but $rowCount rows returned when attempting delete from processing_files, id $processingFilesId1.\n";
+        }
+    }
+    if ( $processingFilesId2 ) {
+        $deleteProcessingFilesSTH->execute( $processingFilesId2 );
+        my $rowCount = $deleteProcessingFilesSTH->rows();
+        if ( $rowCount != 1) {
+            $self->{'error'} = "delete_processing_files";
+            croak "Not 1 but $rowCount rows returned when attempting delete from processing_files, id $processingFilesId2.\n";
+        }
+    }
+
+    $deleteProcessingFilesSTH->finish();
+    return 1;
+
+}
+
+=head2 _deleteUploadFileRec
+
+    $self->_deleteUploadFileRec( $dbh, $uploadId, $fileId );
+
+Deletes the upload_file table record with the specified $uploadId and $fileId.
+This is not a key-based delete, but still expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Once this is removed
+it will not be easy to resotre the link between the upload record and the file
+record, if they are not also removed.
+
+Performs no parameter checks, assumes $dbh, $uploadId, and $fileId have been checked
+prior.
+
+Returns 1 if doesn't die.
+
+=cut
+
+sub _deleteUploadFileRec {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadId = shift;
+    my $fileId = shift;
+
+    my $deleteUploadFileSQL =
+        "DELETE FROM upload_file WHERE upload_id = ? AND file_id = ?";
+    my $deleteUploadFileSTH = $dbh->prepare( $deleteUploadFileSQL );
+
+    $deleteUploadFileSTH->execute( $uploadId, $fileId );
+    my $rowCount = $deleteUploadFileSTH->rows();
+    if ( $rowCount != 1) {
+        $self->{'error'} = "delete_upload_file";
+        croak "Not 1 but $rowCount rows returned when attempting delete from upload_file, upload $uploadId, file $fileId.\n";
+    }
+
+    $deleteUploadFileSTH->finish();
+    return 1;
+
+}
+
+=head2 _deleteFileRec
+
+    $self->_deleteFileRec( $dbh, $fileId );
+
+Deletes the file table record with the specified id. Expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Will fail if
+linked upload_file record or processing_files records not removed first.
+
+Performs no parameter checks, assumes $dbh and $fileId have been checked
+prior.
+
+Returns 1 if doesn't die.
+
+=cut
+
+sub _deleteFileRec {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $fileId = shift;
+
+    my $deleteFileSQL =
+        "DELETE FROM file WHERE file_id = ?";
+    my $deleteFileSTH = $dbh->prepare( $deleteFileSQL );
+
+    $deleteFileSTH->execute( $fileId );
+    my $rowCount = $deleteFileSTH->rows();
+    if ( $rowCount != 1) {
+        $self->{'error'} = "delete_file";
+        croak "Not 1 but $rowCount rows returned when attempting delete from file, id $fileId.\n";
+    }
+
+    $deleteFileSTH->finish();
+    return 1;
+}
+
+=head2 _deleteUploadRec
+
+    $self->_deleteUploadRec( $dbh, $uploadId );
+
+Deletes the upload table record with the specified id. Expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Will fail if
+linked upload_file record not removed first.
+
+Performs no parameter checks, assumes $dbh and $uploadId have been checked
+prior.
+
+Returns 1 if succeeds.
+
+=cut
+
+sub _deleteUploadRec {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $uploadId = shift;
+
+    my $deleteUploadSQL =
+        "DELETE FROM upload WHERE upload_id = ?";
+    my $deleteUploadSTH = $dbh->prepare( $deleteUploadSQL );
+
+    $deleteUploadSTH->execute( $uploadId );
+    my $rowCount = $deleteUploadSTH->rows();
+    if ( $rowCount != 1) {
+        $self->{'error'} = "delete_upload";
+        croak "Not 1 but $rowCount rows returned when attempting delete from upload, id $uploadId.\n";
+    }
+
+    $deleteUploadSTH->finish();
+    return 1;
+}
+
+=head2 _cleanFileSystem
+
+    $self->_cleanFileSystem( $dbh, $rerunDataHR );
+
+Deletes the zip file, if it existts and the upload directory and contents, if it
+exists. Does not delete the directory the zip file is in even if it is the
+only file there.
+
+Returns 1 if succeeds, dies if fails. The lack of a file or directroy is not an
+error. The lack of data in the rerunDataHR is not an error. It is only a failure
+to delete when attempting to do so that will trigger an error.
+
+It is an error if the parameters are not specified, or if
+$rerunDataHR->upload->upload_id is not available. It is also an error if
+an upload directory has been specified (upload.metadata_dir) and there is
+no uploadFastqBaseDir specified in the seqware config file or the application
+parameters.
+
+=cut
+
+sub _cleanFileSystem {
+
+    my $self = shift;
+    my $dbh = shift;
+    my $rerunDataHR = shift;
+
+    unless ($dbh) {
+        $self->{'error'} = "param__cleanDatabase_dbh";
+        croak ("_cleanDatabase() missing \$dbh parameter.");
+    }
+
+    unless ($rerunDataHR) {
+        $self->{'error'} = "param__cleanDatabase_rerunDataHR";
+        croak ("_cleanDatabase() missing \$rerunDataHR parameter.");
+    }
+
+    my $uploadId = $rerunDataHR->{'upload'}->{'upload_id'};
+    unless ( $uploadId ) {
+        $self->{'error'} = "param__cleanDatabase_rerunDataHR_upload_id";
+        croak ("_cleanDatabase() missing \$rerunDataHR->upload->upload_id parameter.");
+    }
+
+    eval {
+        my $file = $rerunDataHR->{'file_path'};
+        if ( $file && -f $file ) {
+            $self->_deleteFastqZipFile( $file );
+        }
+
+        my $uploadDir = $rerunDataHR->{'upload'}->{'metadata_dir'};
+        if ( $uploadDir ) {
+            if (! -d $self->{'uploadFastqBaseDir'}) {
+                $self->{'error'} = "no_fastq_base_dir";
+                croak "Can't find the fastq upload base dir: $self->{'uploadFastqBaseDir'}";
+            }
+
+            $uploadDir = File::Spec->catdir( $self->{'uploadFastqBaseDir'}, $uploadDir);
+            if( -d $uploadDir) {
+                $self->_deleteUplaodDir( $uploadDir );
+            }
+        }
+    };
+
+    if ($@) {
+        my $error = $@;
+        if (! $self->{'error'}) {
+                $self->{'error'} = "unknown_rerun__cleanFileSystem";
+        }
+        croak "_cleanFileSystem failed to delete the file system data for upload $rerunDataHR->{'upload'}->{'upload_id'}. $error\n";
+    }
+
+    return 1;
+}
+
+=head2 _deleteFastqZipFile
+
+    $self->_deleteFastqZipFile( $file );
+
+Helper to delete a file if specified. Intended to be the fastq.tar.gz, dies if
+filename isn't full path or if doesn't match "*fastq*.tar.gz"
+
+=cut
+
+sub _deleteFastqZipFile {
+    my $self = shift;
+    my $file = shift;
+
+    if (! File::Spec->file_name_is_absolute( $file )) {
+        $self->{'error'} = "rm_fastq_bad_filename_abs";
+        croak ( "Not removed as filename not absolute - $file\n" );
+    }
+
+    if ( $file !~ /fastq.*\.tar\.gz$/ ) {
+        $self->{'error'} = "rm_fastq_bad_filename_ext";
+        croak ( "Not removed as filename doean't match *fastq*.tar.gz - $file\n" );
+    }
+
+    my $ok = unlink $file;
+    if (! $ok) {
+        $self->{'error'} = "rm_fastq";
+        croak ("Not removed - $file - $!");
+    }
+    return $ok;
+}
+
+=head2 _deleteUploadDir
+
+    $self->_deleteUploaddir( $uploadDir );
+
+Helper to delete the upload dir if specified. Intended to be the uuid dir, dies
+if dirname isn't a full path or if doesn't end with a uuid directory.
+
+=cut
+
+sub _deleteUploadDir {
+    my $self = shift;
+    my $uploadDir = shift;
+
+    if (! File::Spec->file_name_is_absolute( $uploadDir )) {
+        $self->{'error'} = "rm_upload_dir_bad_filename_abs";
+        croak ( "Not removed as dir not absolute - $uploadDir\n" );
+    }
+
+    if ( $uploadDir !~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}$/i ) {
+        $self->{'error'} = "rm_upload_dir_bad_filename_format";
+        croak ( "Not removed as doesn't look like a uuid - $uploadDir\n" );
+    }
+
+    my $errorsAR;
+    my $numFilesDeleted = remove_tree ( $uploadDir, { 'safe' => 1, 'error' => \$errorsAR });
+    if ( @$errorsAR ) {
+        $self->{'error'} = "rm_upload_dir";
+        croak ("Not removed - $uploadDir " . Dumper( $errorsAR ));
+    }
+
+    return $numFilesDeleted;
+}
 
 =head2 getAll()
 
@@ -2095,7 +2342,7 @@ sub _insertFile {
     eval {
         $dbh->begin_work();
         $self->_insertFileRecord( $dbh );
-        $self->_insertProcessingFileRecords( $dbh );
+        $self->_insertProcessingFilesRecords( $dbh );
         $dbh->commit();
     };
     if ($@) {
@@ -2174,19 +2421,19 @@ sub _insertFileRecord {
     return 1;
 }
 
-=head2 _insertProcessingFileRecords
+=head2 _insertProcessingFilesRecords
 
-    $self->_insertProcessingFileRecords( $dbh )
+    $self->_insertProcessingFilesRecords( $dbh )
 
 =cut
 
-sub _insertProcessingFileRecords {
+sub _insertProcessingFilesRecords {
     my $self = shift;
     my $dbh = shift;
 
     unless ($dbh) {
-        $self->{'error'} = 'param__insertProcessingFileRecords_dbh';
-        croak ("_insertProcessingFileRecords() missing \$dbh parameter.");
+        $self->{'error'} = 'param__insertProcessingFilesRecords_dbh';
+        croak ("_insertProcessingFilesRecords() missing \$dbh parameter.");
     }
 
     my $newProcessingFilesSQL =
@@ -2205,7 +2452,7 @@ sub _insertProcessingFileRecords {
             $self->{'error'} = "insert_processsing_files_1";
             croak "failed to insert processing_files record for fastq 1\n";
         }
-        $self->sayVerbose("Inserted processing_file record 1.");
+        $self->sayVerbose("Inserted processing_files record 1.");
         if ($self->{'_fastqs'}->[1]->{'processingId'}) {
             $newProcessingFilesSTH->execute(
                 $self->{'_fastqs'}->[1]->{'processingId'}, $self->{'_zipFileId'}
@@ -2215,7 +2462,7 @@ sub _insertProcessingFileRecords {
                 $self->{'error'} = "insert_processsing_files_2";
                 croak "failed to insert processing_files record for fastq 2\n";
             }
-            $self->sayVerbose("Inserted processing_file record 2.");
+            $self->sayVerbose("Inserted processing_files record 2.");
         }
     };
 

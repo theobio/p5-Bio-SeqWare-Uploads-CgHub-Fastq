@@ -90,7 +90,7 @@ subtest( '_getFilesToZip()'            => \&test__getFilesToZip );
 subtest( '_fastqFilesSqlSubSelect()'   => \&test__fastqFilesSqlSubSelect);
 subtest( '_zip()'                      => \&test__zip );
 subtest( '_insertFileRecord()'         => \&test__insertFileRecord);
-subtest( '_insertProcessingFileRecord()' => \&test__insertProcessingFileRecord);
+subtest( '_insertProcessingFilesRecord()' => \&test__insertProcessingFilesRecord);
 subtest( '_insertFile()'               => \&test__insertFile);
 subtest( '_insertUploadFileRecord()'   => \&test__insertUploadFileRecord);
 subtest( '_getSampleSelectionSql()'    => \&test__getSampleSelectionSql);
@@ -1204,14 +1204,14 @@ sub test__insertFileRecord {
 
 }
 
-sub test__insertProcessingFileRecord {
+sub test__insertProcessingFilesRecord {
     plan ( tests => 7 );
 
     my $fileId = -6;
     my $processingId1 = -20;
     my $processingId2 = -2020;
 
-    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertProcessingFileRec', ({
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertProcessingFilesRec', ({
         'statement'    => qr/INSERT INTO processing_files.*/msi,
         'bound_params' => [ $processingId1, $fileId ],
         'results'  => [ [ 'rows' ], [] ],
@@ -1227,18 +1227,18 @@ sub test__insertProcessingFileRecord {
     $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
 
     {
-        is( 1, $obj->_insertProcessingFileRecords( $MOCK_DBH ), "Insert processingfile records" );
+        is( 1, $obj->_insertProcessingFilesRecords( $MOCK_DBH ), "Insert processingfiles records" );
     }
 
     # Bad param: $dbh
     {
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_insertProcessingFileRecords();
+             $obj->_insertProcessingFilesRecords();
         };
         {
-          like( $@, qr/^_insertProcessingFileRecords\(\) missing \$dbh parameter\./, "Error if no dbh param");
-          is( $obj->{'error'}, 'param__insertProcessingFileRecords_dbh', "Errror tag if no dbh param");
+          like( $@, qr/^_insertProcessingFilesRecords\(\) missing \$dbh parameter\./, "Error if no dbh param");
+          is( $obj->{'error'}, 'param__insertProcessingFilesRecords_dbh', "Errror tag if no dbh param");
         }
     }
 
@@ -1258,7 +1258,7 @@ sub test__insertProcessingFileRecord {
         $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
         $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
         eval {
-             $obj->_insertProcessingFileRecords( $MOCK_DBH );
+             $obj->_insertProcessingFilesRecords( $MOCK_DBH );
         };
         {
           like( $@, qr/^Processing files insert failed\: failed to insert processing_files record for fastq 2/, "Error if failed processing file 2 insert");
@@ -1278,7 +1278,7 @@ sub test__insertProcessingFileRecord {
         $obj->{'_fastqs'}->[0]->{'processingId'} = "-20";
         $obj->{'_fastqs'}->[1]->{'processingId'} = "-2020";
         eval {
-             $obj->_insertProcessingFileRecords( $MOCK_DBH );
+             $obj->_insertProcessingFilesRecords( $MOCK_DBH );
         };
         {
           like( $@, qr/^Processing files insert failed\: failed to insert processing_files record for fastq 1/, "Error if failed processing file 1 insert");
