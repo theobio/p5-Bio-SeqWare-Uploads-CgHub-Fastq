@@ -9,7 +9,7 @@ use File::Temp;           # Simple files for testing
 
 use Bio::SeqWare::Config; # Read the seqware config file
 use DBD::Mock;
-use Test::More 'tests' => 12;    # Run this many Test::More compliant subtests
+use Test::More 'tests' => 14;    # Run this many Test::More compliant subtests
 
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
@@ -33,9 +33,12 @@ sub makeTempZipFile {
 my $TEMP_FILE = makeTempZipFile();
 
 sub makeTempUploadDir {
-    my $dir = File::Spec->catdir($TEMP_DIR, '00000000-0000-0000-0000-000000000000');
-    mkdir( $dir ) or
-            croak "Coudn't create temp dir $dir needed for testing.";
+    my $dir = shift;
+    $dir = File::Spec->catdir($dir, '00000000-0000-0000-0000-000000000000');
+    if (! -d $dir) {
+        mkdir( $dir ) or
+                croak "Coudn't create temp dir $dir needed for testing.";
+    }
     my $fileName = File::Spec->catfile( $dir, 'analysis.xml');
     `touch $fileName`;
     if (! -f $fileName) {
@@ -120,10 +123,11 @@ subtest( '_deleteUploadFileRec()'      => \&test__deleteUploadFileRec );
 subtest( '_deleteProcessingFilesRec()' => \&test__deleteProcessingFilesRec );
 subtest( '_cleanDatabase()'            => \&test__cleanDatabase );
 
-subtest( '_deleteFastqZipFile()'       => \&test__deleteFastqZipFile );
-subtest( '_deleteUploadDir()'          => \&test__deleteUploadDir );
+subtest( '_deleteFastqZipFile()' => \&test__deleteFastqZipFile );
+subtest( '_deleteUploadDir()'    => \&test__deleteUploadDir );
+subtest( '_cleanFileSystem()'    => \&test__cleanFileSystem );
 
-
+subtest( 'doRerun()' => \&test_doRerun );
 
 #
 # SUBTESTS
@@ -1505,7 +1509,7 @@ sub test__cleanDatabase {
 }
 
 sub test__deleteFastqZipFile {
-    plan( tests => 12 );
+    plan( tests => 16 );
 
     # unlink fastq.tar.gz dummy file
     {
@@ -1525,13 +1529,41 @@ sub test__deleteFastqZipFile {
         }
     }
 
-    # raise errors from failed deletion
+    # Ok if no file name passed in
     {
-        my $file = "/no/such/fastq.tar.gz";
+        my $file;
         my $obj = $CLASS->new( $OPT_HR );
         {
-            ok( ! -f $file, "zip file does not exists before attempted deletion.");
+            my $testThatThisSub = "Returns 0 if no file to delete";
+            my $got = $obj->_deleteFastqZipFile( $file );
+            my $want = 0;
+            is( $got, $want, $testThatThisSub);
         }
+    }
+
+    # Ok if no such file exists
+    {
+        my $file = "/no/such/fastq.tar.gz";
+        {
+            ok( ! -e $file, "Test requires no such file to exist");
+        }
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 0 if no file to delete";
+            my $got = $obj->_deleteFastqZipFile( $file );
+            my $want = 0;
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # raise errors from failed deletion
+    {
+        my $file = makeTempZipFile();
+        `chmod -w $TEMP_DIR`;
+        {
+            ok( ! -w $TEMP_DIR, "test requires zip parent dir not writeable.");
+        }
+        my $obj = $CLASS->new( $OPT_HR );
         eval {
             $obj->_deleteFastqZipFile( $file );
         };
@@ -1546,6 +1578,11 @@ sub test__deleteFastqZipFile {
             my $got = $obj->{'error'};
             my $want = 'rm_fastq';
             is( $got, $want, $testThatThisSub);
+        }
+        # cleanup, make file writeable again.
+        `chmod +w $TEMP_DIR`;
+        {
+            ok( -w $TEMP_DIR, "Set zip parnet dir writeable again.");
         }
     }
 
@@ -1615,18 +1652,20 @@ sub test__deleteFastqZipFile {
 }
 
 sub test__deleteUploadDir {
-    plan( tests => 9 );
+    plan( tests => 13 );
 
     # Smoke test - delete upload dir
     {
-        my $dir = makeTempUploadDir();
+        my $dir = makeTempUploadDir( $TEMP_DIR );
+        my $baseDir = $TEMP_DIR;
+        my $uuidDir = $MOCK_UPLOAD_REC{'cghub_analysis_id'};
         my $obj = $CLASS->new( $OPT_HR );
         {
             ok( -d $dir, "upload dir exists before deletion.");
         }
         {
             my $testThatThisSub = "Returns number of files deleted uplaod dir";
-            my $got = $obj->_deleteUploadDir( $dir );
+            my $got = $obj->_deleteUploadDir( $baseDir, $uuidDir );
             my $want = 4; # three files plus directory
             is( $got, $want, $testThatThisSub);
         }
@@ -1636,16 +1675,59 @@ sub test__deleteUploadDir {
     }
 
 
+    # Ok if no $baseDir passed in
+    {
+        my $baseDir;
+        my $uuidDir = $MOCK_UPLOAD_REC{'cghub_analysis_id'};
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 0 if no basedir to delete";
+            my $got = $obj->_deleteUploadDir( $baseDir, $uuidDir );
+            my $want = 0;
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Ok if no $uuidDir passed in
+    {
+        my $baseDir = $TEMP_DIR;
+        my $uuidDir;
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 0 if no uuid to delete";
+            my $got = $obj->_deleteUploadDir( $baseDir, $uuidDir );
+            my $want = 0;
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Ok if no such upload directories exist.
+    {
+        my $baseDir = "/no/such/";
+        my $uuidDir = $MOCK_UPLOAD_REC{'cghub_analysis_id'};
+        {
+            ok( ! -e $baseDir, "Test requires no such dir to exist");
+        }
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Returns 0 if no file to delete";
+            my $got = $obj->_deleteUploadDir($baseDir, $uuidDir );
+            my $want = 0;
+            is( $got, $want, $testThatThisSub);
+        }
+    }
     # Error when trying to delete upload dir
     {
-        my $dir = makeTempUploadDir();
+        my $dir = makeTempUploadDir( $TEMP_DIR );
         `chmod -w $dir/analysis.xml`;
         if ( (! -f "$dir/analysis.xml") || ( -w "$dir/analysis.xml")) {
             die( "Prior to test, no-write file must exist" );
         }
+        my $baseDir = $TEMP_DIR;
+        my $uuidDir = $MOCK_UPLOAD_REC{'cghub_analysis_id'};
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_deleteUploadDir( $dir );
+             $obj->_deleteUploadDir( $baseDir, $uuidDir );
         };
         my $error = $@;
 
@@ -1668,18 +1750,19 @@ sub test__deleteUploadDir {
         }
     }
 
-    # upload dir not absolute
+    # upload dir not absolute.
     {
-        my $dir = "relative/not_a_real_dir";
+        my $baseDir = 'relative/dir';
+        my $uuidDir = $MOCK_UPLOAD_REC{'cghub_analysis_id'};
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_deleteUploadDir( $dir );
+             $obj->_deleteUploadDir( $baseDir, $uuidDir );
         };
         my $error = $@;
         {
             my $testThatThisSub = "Throws descriptive error if filename not an absolute path.";
             my $got = $error;
-            my $want = qr/^Not removed as dir not absolute \- $dir/;
+            my $want = qr/^Not removed as dir not absolute \- relative/;
             like( $got, $want, $testThatThisSub);
         }{
             my $testThatThisSub = "Sets correct error tag if dir not an absolute path.";
@@ -1691,16 +1774,17 @@ sub test__deleteUploadDir {
 
     # upload dir not uuid
     {
-        my $dir = "/not/a/uuid/some_fake_absolute_dir";
+        my $baseDir = $TEMP_DIR;
+        my $uuidDir = "NotAUUID";
         my $obj = $CLASS->new( $OPT_HR );
         eval {
-             $obj->_deleteUploadDir( $dir );
+             $obj->_deleteUploadDir( $baseDir, $uuidDir );
         };
         my $error = $@;
         {
             my $testThatThisSub = "Throws descriptive error if dir not formated as uuid";
             my $got = $error;
-            my $want = qr/^Not removed as doesn\'t look like a uuid \- $dir/;
+            my $want = qr/^Not removed as doesn\'t look like a uuid \- $TEMP_DIR.+/;
             like( $got, $want, $testThatThisSub);
         }{
             my $testThatThisSub = "Sets correct error tag if dir not formated as uuid.";
@@ -1709,5 +1793,339 @@ sub test__deleteUploadDir {
             is( $got, $want, $testThatThisSub);
         }
     }
+
+}
+
+sub test__cleanFileSystem {
+    plan( tests => 12 );
+
+    # Smoke test, with everything
+    {
+        my $dir = makeTempUploadDir( $TEMP_DIR );
+        my $file = makeTempZipFile();
+        my $uploadHR = {
+            'upload_id'         => -21,
+            'sample_id'         => -19,
+            'target'            => 'CGHUB_FASTQ',
+            'status'            => 'zip_failed_dummy_error',
+            'external_status'   => undef,
+            'metadata_dir'      => $TEMP_DIR,
+            'cghub_analysis_id' => '00000000-0000-0000-0000-000000000000',
+        };
+        my $rerunDataHR = {
+            'upload' => $uploadHR,
+            'file_id' => -5,
+            'file_path' => $file,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
+        };
+
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Succeeds if all data provided.";
+            ok( -e $file, "File exists prior");
+            ok( -d $dir, "Dir exists prior");
+            ok( $obj->_cleanFileSystem( $rerunDataHR ), $testThatThisSub);
+            ok( ! -e $file, "File does not exist after");
+            ok( ! -d $dir, "Dir does not exist after");
+            ok( -d $TEMP_DIR, "Parent dir DOES exists after");
+        }
+    }
+
+
+    # Error propagation - from within called subroutine
+    {
+        my $dir = makeTempUploadDir( $TEMP_DIR );
+        my $file = makeTempZipFile();
+        my $uploadHR = {
+            'upload_id'         => -21,
+            'sample_id'         => -19,
+            'target'            => 'CGHUB_FASTQ',
+            'status'            => 'zip_failed_dummy_error',
+            'external_status'   => undef,
+            'metadata_dir'      => $TEMP_DIR,
+            'cghub_analysis_id' => 'BadDirName',
+        };
+        my $rerunDataHR = {
+            'upload' => $uploadHR,
+            'file_id' => -5,
+            'file_path' => $file,
+            'processing_files_id_1' => -201,
+            'processing_files_id_2' => -202,
+        };
+
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanFileSystem( $rerunDataHR );
+        };
+        my $error = $@;
+        {
+            my $testThatThisSub = "Throws descriptive error if filesystem delete fails.";
+            my $got = $error;
+            my $want = qr/^_cleanFileSystem failed to delete the file system data for upload $rerunDataHR->{'upload'}->{'upload_id'}\. Not removed as doesn\'t look like a uuid \- $TEMP_DIR.+/;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if filesystem delete fails.";
+            my $got = $obj->{'error'};
+            my $want = 'rm_upload_dir_bad_filename_format';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $rerunDataHR
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanFileSystem();
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no rerunDataHR parameter passed.";
+            my $got = $@;
+            my $want = qr/^_cleanFileSystem\(\) missing \$rerunDataHR parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no rerunDataHR parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param__cleanFileSystem_rerunDataHR';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $rerunDataHr->upload->upload_id
+    {
+        my $rerunDataHR = {};
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->_cleanFileSystem( $rerunDataHR );
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no rerunDataHr->upload->upload_id parameter passed.";
+            my $got = $@;
+            my $want = qr/^_cleanFileSystem\(\) missing \$rerunDataHR->upload->upload_id parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no rerunDataHR->upload->upload_id parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param__cleanFileSystem_rerunDataHR_upload_id';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+}
+
+sub test_doRerun {
+    plan( tests => 8 );
+
+    # Full run
+    {
+        my $dir = makeTempUploadDir( $TEMP_DIR );
+        my $file = makeTempZipFile();
+        my $uploadRec = {
+            'upload_id'         => -21,
+            'sample_id'         => -19,
+            'target'            => 'CGHUB_FASTQ',
+            'status'            => 'zip_failed_dummy_error',
+            'external_status'   => undef,
+            'metadata_dir'      => $TEMP_DIR,
+            'cghub_analysis_id' => '00000000-0000-0000-0000-000000000000',
+        };
+
+        my $uploadId = $uploadRec->{'upload_id'};
+        my $fileId = -5;
+        my $processingFilesId1 = -201;
+        my $processingFilesId2 = -202;
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+                'statement'    => qr/SELECT \*/msi,
+                'results'  => [
+                    [ 'upload_id',    'sample_id',
+                      'status',       'external_status',
+                      'metadata_dir', 'cghub_analysis_id',
+                      'target'  ],
+                    [ $uploadRec->{'upload_id'},    $uploadRec->{'sample_id'},
+                      $uploadRec->{'status'},       $uploadRec->{'external_status'},
+                      $uploadRec->{'metadata_dir'}, $uploadRec->{'cghub_analysis_id'},
+                      $uploadRec->{'target'},
+                    ],
+                ]
+            }, {
+                'statement'    => qr/UPDATE upload/msi,
+                'bound_params' => [ 'rerun_running', $uploadId ],
+                'results'  => [[ 'rows' ], []]
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }, {
+                'statement'    => qr/SELECT file_id/msi,
+                'bound_params' => [ $uploadId ],
+                'results'  => [[ 'file_id' ], [ $fileId ]],
+            }, {
+                'statement'    => qr/SELECT file_path/msi,
+                'bound_params' => [ $fileId ],
+                'results'  => [[ 'file_path' ], [ $file ]],
+            }, {
+                'statement'    => qr/SELECT processing_files_id/msi,
+                'bound_params' => [ $fileId ],
+                'results'  => [[ 'processing_files_id' ], [ $processingFilesId1 ], [$processingFilesId2]],
+            }, {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId1 ],
+              'results'  => [[ 'rows' ], []]
+            }, {
+              'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
+              'bound_params' => [ $processingFilesId2 ],
+              'results'  => [[ 'rows' ], []]
+            }, { 
+              'statement'    => "DELETE FROM upload_file WHERE upload_id = ? AND file_id = ?",
+              'bound_params' => [ $uploadId, $fileId ],
+              'results'  => [[ 'rows' ], []]
+            }, {
+              'statement'    => "DELETE FROM file WHERE file_id = ?",
+              'bound_params' => [ $fileId ],
+              'results'  => [[ 'rows' ], []]
+            }, {
+              'statement'    => "DELETE FROM upload WHERE upload_id = ?",
+              'bound_params' => [ $uploadId ],
+              'results'  => [[ 'rows' ], []]
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            } 
+        );
+
+
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Full pass to delete upload record.";
+            my $got = $obj->doRerun( $MOCK_DBH );
+            my $want = 1;
+            is( $got, $want, $testThatThisSub);
+            ok( ! -d $dir, "Upload dir deleted");
+            ok( ! -f $file, "Zip file deleted");
+        }
+    }
+
+    # Nothing to do run
+    {
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+                'statement'    => qr/SELECT \*/msi,
+                'results'  => [ [], ]
+            }, {
+               'statement' => 'COMMIT',
+                'results'  => [[]],
+            }
+        );
+
+
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        {
+            my $testThatThisSub = "Nothing to delete.";
+            my $got = $obj->doRerun( $MOCK_DBH );
+            my $want = 1;
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Error propogation
+    {
+        my $uploadRec = {
+            'upload_id'         => -21,
+            'sample_id'         => -19,
+            'target'            => 'CGHUB_FASTQ',
+            'status'            => 'zip_failed_dummy_error',
+            'external_status'   => undef,
+            'metadata_dir'      => $TEMP_DIR,
+            'cghub_analysis_id' => '00000000-0000-0000-0000-000000000000',
+        };
+
+        my $uploadId = $uploadRec->{'upload_id'};
+        my @dbSession = (
+            {
+                'statement' => 'BEGIN WORK',
+                'results'  => [[]],
+            }, {
+                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+                 'results'  => [[]],
+            }, {
+                'statement'    => qr/SELECT \*/msi,
+                'results'  => [
+                    [ 'upload_id',    'sample_id',
+                      'status',       'external_status',
+                      'metadata_dir', 'cghub_analysis_id',
+                      'target'  ],
+                    [ $uploadRec->{'upload_id'},    $uploadRec->{'sample_id'},
+                      $uploadRec->{'status'},       $uploadRec->{'external_status'},
+                      $uploadRec->{'metadata_dir'}, $uploadRec->{'cghub_analysis_id'},
+                      $uploadRec->{'target'},
+                    ],
+                ]
+            }, {
+                'statement'    => qr/UPDATE upload/msi,
+                'bound_params' => [ 'rerun_running', $uploadId ],
+                'results'  => [ [] ]
+            }, {
+               'statement' => 'ROLLBACK',
+                'results'  => [[]]
+            }
+        );
+
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doRerun( $MOCK_DBH );
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
+            my $got = $@;
+            my $want = qr/^DO_RERUN\: Failed trying to tag a \'fail\' upload record for rerun\: _changeUploadRerunStage failed to update rerun upload status for upload $uploadId\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'failed_rerun_unstored_lookup_error';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
+    # Bad Parameters - $dbh
+    {
+        my $obj = $CLASS->new( $OPT_HR );
+        eval {
+             $obj->doRerun();
+        };
+        {
+            my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
+            my $got = $@;
+            my $want = qr/^doRerun\(\) missing \$dbh parameter\./;
+            like( $got, $want, $testThatThisSub);
+        }{
+            my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";
+            my $got = $obj->{'error'};
+            my $want = 'param_doRerun_dbh';
+            is( $got, $want, $testThatThisSub);
+        }
+    }
+
 
 }

@@ -753,14 +753,17 @@ sub doRerun {
     }
 
     eval {
-        my $uploadRecord    = $self->_tagRerunUpload( $dbh );
+        my $uploadRecord    = $self->_changeUploadRerunStage( $dbh );
+        if (! $uploadRecord) {
+            return 1; # Nothing to redo.
+        }
         my $rerunDataHR     = $self->_getRerunData( $dbh, $uploadRecord );
-        $self->_cleanFileSystem( $dbh, $rerunDataHR );
+        $self->_cleanFileSystem( $rerunDataHR );
         $self->_cleanDatabase( $dbh, $rerunDataHR );
     };
 
     if ($@) {
-        my $error = $@;
+        my $error = "DO_RERUN: " . $@;
         if (! $self->{'error'}) {
             $self->{'error'} = 'unknown_error';
         }
@@ -1404,49 +1407,32 @@ parameters.
 sub _cleanFileSystem {
 
     my $self = shift;
-    my $dbh = shift;
     my $rerunDataHR = shift;
 
-    unless ($dbh) {
-        $self->{'error'} = "param__cleanDatabase_dbh";
-        croak ("_cleanDatabase() missing \$dbh parameter.");
-    }
-
     unless ($rerunDataHR) {
-        $self->{'error'} = "param__cleanDatabase_rerunDataHR";
-        croak ("_cleanDatabase() missing \$rerunDataHR parameter.");
+        $self->{'error'} = "param__cleanFileSystem_rerunDataHR";
+        croak ("_cleanFileSystem() missing \$rerunDataHR parameter.");
     }
 
     my $uploadId = $rerunDataHR->{'upload'}->{'upload_id'};
     unless ( $uploadId ) {
-        $self->{'error'} = "param__cleanDatabase_rerunDataHR_upload_id";
-        croak ("_cleanDatabase() missing \$rerunDataHR->upload->upload_id parameter.");
+        $self->{'error'} = "param__cleanFileSystem_rerunDataHR_upload_id";
+        croak ("_cleanFileSystem() missing \$rerunDataHR->upload->upload_id parameter.");
     }
 
     eval {
+        my $basePath = $rerunDataHR->{'upload'}->{'metadata_dir'};
+        my $uuidDir      = $rerunDataHR->{'upload'}->{'cghub_analysis_id'};
+        $self->_deleteUploadDir( $basePath, $uuidDir );
+
         my $file = $rerunDataHR->{'file_path'};
-        if ( $file && -f $file ) {
-            $self->_deleteFastqZipFile( $file );
-        }
-
-        my $uploadDir = $rerunDataHR->{'upload'}->{'metadata_dir'};
-        if ( $uploadDir ) {
-            if (! -d $self->{'uploadFastqBaseDir'}) {
-                $self->{'error'} = "no_fastq_base_dir";
-                croak "Can't find the fastq upload base dir: $self->{'uploadFastqBaseDir'}";
-            }
-
-            $uploadDir = File::Spec->catdir( $self->{'uploadFastqBaseDir'}, $uploadDir);
-            if( -d $uploadDir) {
-                $self->_deleteUplaodDir( $uploadDir );
-            }
-        }
+        $self->_deleteFastqZipFile( $file );
     };
 
     if ($@) {
         my $error = $@;
         if (! $self->{'error'}) {
-                $self->{'error'} = "unknown_rerun__cleanFileSystem";
+                $self->{'error'} = "unknown__cleanFileSystem";
         }
         croak "_cleanFileSystem failed to delete the file system data for upload $rerunDataHR->{'upload'}->{'upload_id'}. $error\n";
     }
@@ -1467,6 +1453,10 @@ sub _deleteFastqZipFile {
     my $self = shift;
     my $file = shift;
 
+    if (! $file) {
+        return 0;
+    }
+
     if (! File::Spec->file_name_is_absolute( $file )) {
         $self->{'error'} = "rm_fastq_bad_filename_abs";
         croak ( "Not removed as filename not absolute - $file\n" );
@@ -1475,6 +1465,10 @@ sub _deleteFastqZipFile {
     if ( $file !~ /fastq.*\.tar\.gz$/ ) {
         $self->{'error'} = "rm_fastq_bad_filename_ext";
         croak ( "Not removed as filename doean't match *fastq*.tar.gz - $file\n" );
+    }
+
+    if (! -f $file) {
+        return 0;
     }
 
     my $ok = unlink $file;
@@ -1496,7 +1490,17 @@ if dirname isn't a full path or if doesn't end with a uuid directory.
 
 sub _deleteUploadDir {
     my $self = shift;
-    my $uploadDir = shift;
+    my $baseDir = shift;
+    my $uuidDir = shift;
+
+    if (! $baseDir) {
+        return 0;
+    }
+    if (! $uuidDir) {
+        return 0;
+    }
+
+    my $uploadDir = File::Spec->catdir( $baseDir, $uuidDir );
 
     if (! File::Spec->file_name_is_absolute( $uploadDir )) {
         $self->{'error'} = "rm_upload_dir_bad_filename_abs";
@@ -1506,6 +1510,10 @@ sub _deleteUploadDir {
     if ( $uploadDir !~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}$/i ) {
         $self->{'error'} = "rm_upload_dir_bad_filename_format";
         croak ( "Not removed as doesn't look like a uuid - $uploadDir\n" );
+    }
+
+    if (! -d $uploadDir) {
+        return 0;
     }
 
     my $errorsAR;
