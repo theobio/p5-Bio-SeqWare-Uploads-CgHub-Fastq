@@ -799,7 +799,7 @@ sub _changeUploadRerunStage {
 
     # Setup SQL to select upload record.
     my $selectSql =
-       "SELECT *
+       "SELECT u.*
         FROM upload AS u, sample AS s
         WHERE u.target = 'CGHUB_FASTQ'
           AND s.sample_id = u.sample_id

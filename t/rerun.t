@@ -640,7 +640,7 @@ sub test__changeUploadRerunStage {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
@@ -682,7 +682,7 @@ sub test__changeUploadRerunStage {
              'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
              'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [[]]
             }, {
                'statement' => 'COMMIT',
@@ -721,7 +721,7 @@ sub test__changeUploadRerunStage {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'bound_params' => [
                     $local_opt_HR->{'sampleId'},    $local_opt_HR->{'sampleAccession'},
                     $local_opt_HR->{'sampleAlias'}, $local_opt_HR->{'sampleUuid'},
@@ -767,7 +767,7 @@ sub test__changeUploadRerunStage {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
@@ -825,7 +825,7 @@ sub test__changeUploadRerunStage {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
@@ -873,7 +873,7 @@ sub test__changeUploadRerunStage {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
@@ -1942,7 +1942,7 @@ sub test_doRerun {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
@@ -2028,7 +2028,7 @@ sub test_doRerun {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [ [], ]
             }, {
                'statement' => 'COMMIT',
@@ -2068,7 +2068,7 @@ sub test_doRerun {
                  'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
                  'results'  => [[]],
             }, {
-                'statement'    => qr/SELECT \*/msi,
+                'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
                       'status',       'external_status',
