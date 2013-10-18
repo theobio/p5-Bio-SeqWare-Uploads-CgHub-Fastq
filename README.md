@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.024
+Version 0.000.025
 
 # SYNOPSIS
 
@@ -95,7 +95,7 @@ undef. Directory markers are "/", ".", or ".." on Unix
       $obj->run();
     # or
       $obj->run( $runMode );
-      # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ ALL
+      # $runMode one of: ZIP META VALIDATE SUBMIT_META SUBMIT_FASTQ LIVE ALL
     # or
       $obj->run( $runMode, $dbh );
     # or
@@ -197,6 +197,9 @@ sub run {
         }
         elsif ($runMode eq "LIVE" ) {
             $self->doLive( $dbh );
+        }
+        elsif ($runMode eq "RERUN" ) {
+            $self->doRerun( $dbh );
         }
         else {
             $self->{'error'} = "failed_run_unknown_run_mode";
@@ -354,25 +357,230 @@ not live yet", "bad", and "done" as states.
     "live"                  => status         = 'live_completed';
                                externalstatus = 'live'
 
+## doRerun
+
+     $obj->doRerun( $dbh )
+
+Uses --rerunWait <days>
+
+Reruns failed sample fastq file uploads automatically. Failed samples are
+identified, associated database records (other than the upload record) are
+cleared, and any files on the file system are deleted. Parent data directories
+are NOT deleted. After everything finishes, the upload record itself will be
+deleted to allow for rerunning from scratch. To prevent a sample from being
+rerun, replace 'fail' or 'failed' in the status with 'bad'
+
+Selecting a sample for rerun:
+
+A CGHUB-FASTQ upload record is a rerun candidate if upload.status contains
+'fail', upload.external\_status is 'live' and upload.tstmp is more than
+\--rerunWait days ago. If selected, it will have its status changed to
+'rerun\_running'. If rerun fails, the status will be changed to
+'rerun\_failed\_<error\_tag>'. Note that failed reruns will themselves
+automatically be rerun after waiting. In-process samples will not be selected
+as they have no "fail" in their status. \[TODO - deal with stuck "running"
+samples\]. Unprocessed samples will not be selected as they have no CGHUB-FASTQ
+upload record.
+
+1\. Gather information:
+
+Once a sample is selected for clearing, the following reverse walk is performed
+to obtain information
+
+    uploadId          <= upload
+    sampleId          <= upload
+    metadataPath      <= upload
+    fileId            <= upload_file
+    fastqZipFilePath  <= file
+    processingFilesId <= processing_files
+
+2\. Clear file system:
+
+Remove the fastqZipFilePath fastq file and the metadataPath metadata directory
+(with all its contents). \[TODO: Figure out saftey check for this.\]
+
+3\. Clear database as transaction:
+
+removing in order processing\_files records, upload\_file records, file records.
+
+4\. Use upload record to signla done
+
+If no errors, delete the upload record, otherwise update its status to
+'rerun\_failed\_<message> status.
+
+## \_changeUploadRerunStage
+
+    my $uploadRec = $self->_changeUploadRerunStage( $dbh );
+
+Similar to \_changeUploadRunStage, except has different criteria for selection.
+
+uses $self->{'rerunWait'} config parmaeter (waiting time in days).
+
+
+
+## \_getRerunData
+
+    my $dataHR = $self->_getRerunData( $dbh, $uploadHR );
+
+Returns a hashref of all the data needed to clear an upload, including the
+uploadHR data. Missing data indicated by key => undef.
+
+    $dataHR->{'upload'}->{'upload_id'}
+                       ->{'sample_id'}
+                       ->{'target'}
+                       ->{'status'}
+                       ->{'external_status'}
+                       ->{'metadata_dir'}
+                       ->{'cghub_analysis_id'}
+                       ->{'tstmp'}
+           ->{'file_id'}
+           ->{'file_path'}
+           ->{'processing_files_id_1'}
+           ->{'processing_files_id_2'}
+
+## \_getAssociatedFileId
+
+    my $fileId = $self->_getAssociatedFileId( $dbh, $uploadId)
+
+Looks up the upload\_file records assoicated with the specified upload table.
+If there are no such records, returns undef. If there is one record, returns
+the file\_id. If there are multiple such records, dies.
+
+## \_getFilePath
+
+    my $filePath = $self->_getFilePath( $dbh, $fileId)
+
+Looks up the file record associated with the given file id and returns the
+path associated with that file.
+
+## \_getAssociatedProcessingFilesIds
+
+    my ($id1, $id2) = $self->_getAssociatedProcessingFilesIds( $dbh, $fileId)
+
+Looks up the (0 to 2) file records in processing\_files associated with the given
+file id and returns the ids of those record. If more than 2 records are
+returned, an error is thrown. If only one record is found, returns ($id1, undef).
+If no records are found, returns (undef, undef).
+
+## \_cleanDatabase
+
+    $self->_cleanDatabase( $dbh, $rerunDataHR) or die( "failed" ).
+
+Clears all database records as specified by the $rerunDataHR provided,
+as follows:
+
+    If $dataHR->{'processing_files_id_2'},
+         deletes 1 processing_files record with that id.
+    If $dataHR->{'processing_files_id_1'},
+         deletes 1 processing_files record with that id.
+    If $dataHR->{'file_id'},
+         deletes 1 upload_file record with that file_id and upload_id.
+    If $dataHR->{'file_path'},
+         deletes 1 file record with that file_id.
+    If $dataHR->{'upload'}->{upload_id},
+         deletes 1 upload record with that upload_id.
+
+If any data is missing (except the upload\_id), no attempt will be made to
+delete the associated record  If at any time the number of records scheduled
+for deletion is not 1, then all deletions will be rolled back and this will
+exit with error. It is also an error if the upload\_id is not provided.
+
+Note: No checks are made to ensure that the provided data are related, i.e. any
+id's can be provided. However, there are foreign key constraints between
+processing\_files and file, and between upload and file, it is unlikely that
+deletions will all complete if not correctly associated.
+
+## \_deleteProcessingFilesRec
+
+    $self->_deleteProcessingFilesRec( $dbh, $pfId1, pfId2 );
+
+Deletes the processing\_files table records with the specified ids. Expects 1 and
+only 1 record to be deleted for each defined $pfId provided. otherwise throws
+error and sets $self->{'error'}.
+
+Performs no parameter checks, assumes $dbh and $pfId1 and pfId2 have been
+checked prior, but ok if one or both of the ids are undef.
+
+Returns 1 if doesn't die.
+
+## \_deleteUploadFileRec
+
+    $self->_deleteUploadFileRec( $dbh, $uploadId, $fileId );
+
+Deletes the upload\_file table record with the specified $uploadId and $fileId.
+This is not a key-based delete, but still expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Once this is removed
+it will not be easy to resotre the link between the upload record and the file
+record, if they are not also removed.
+
+Performs no parameter checks, assumes $dbh, $uploadId, and $fileId have been checked
+prior.
+
+Returns 1 if doesn't die.
+
+## \_deleteFileRec
+
+    $self->_deleteFileRec( $dbh, $fileId );
+
+Deletes the file table record with the specified id. Expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Will fail if
+linked upload\_file record or processing\_files records not removed first.
+
+Performs no parameter checks, assumes $dbh and $fileId have been checked
+prior.
+
+Returns 1 if doesn't die.
+
+## \_deleteUploadRec
+
+    $self->_deleteUploadRec( $dbh, $uploadId );
+
+Deletes the upload table record with the specified id. Expects 1 and only 1 record to be
+deleted, otherwise throws error and sets $self->{'error'}. Will fail if
+linked upload\_file record not removed first.
+
+Performs no parameter checks, assumes $dbh and $uploadId have been checked
+prior.
+
+Returns 1 if succeeds.
+
+## \_cleanFileSystem
+
+    $self->_cleanFileSystem( $dbh, $rerunDataHR );
+
+Deletes the zip file, if it existts and the upload directory and contents, if it
+exists. Does not delete the directory the zip file is in even if it is the
+only file there.
+
+Returns 1 if succeeds, dies if fails. The lack of a file or directroy is not an
+error. The lack of data in the rerunDataHR is not an error. It is only a failure
+to delete when attempting to do so that will trigger an error.
+
+It is an error if the parameters are not specified, or if
+$rerunDataHR->upload->upload\_id is not available. It is also an error if
+an upload directory has been specified (upload.metadata\_dir) and there is
+no uploadFastqBaseDir specified in the seqware config file or the application
+parameters.
+
+## \_deleteFastqZipFile
+
+    $self->_deleteFastqZipFile( $file );
+
+Helper to delete a file if specified. Intended to be the fastq.tar.gz, dies if
+filename isn't full path or if doesn't match "\*fastq\*.tar.gz"
+
+## \_deleteUploadDir
+
+    $self->_deleteUploaddir( $uploadDir );
+
+Helper to delete the upload dir if specified. Intended to be the uuid dir, dies
+if dirname isn't a full path or if doesn't end with a uuid directory.
+
 ## getAll()
 
     my $settingsHR = $obj->getAll();
-    
 
 Retrieve a copy of the properties assoiciated with this object.
-=cut
-
-sub getAll() {
-    my $self = shift;
-    my $copy;
-    for my $key (keys %$self) {
-        \# Skip internal only (begin with "\_") properties
-        if ($key !~ /^\_/) {
-            $copy->{$key} = $self->{$key};
-        }
-    }
-    return $copy;
-}
 
 ## getTimeStamp()
 
@@ -595,9 +803,9 @@ to the specified $newStatus and $externalStatus strings.
 
     $self->_insertFileRecord( $dbh )
 
-## \_insertProcessingFileRecords
+## \_insertProcessingFilesRecords
 
-    $self->_insertProcessingFileRecords( $dbh )
+    $self->_insertProcessingFilesRecords( $dbh )
 
 ## \_insertUploadFileRecord()
 
@@ -742,9 +950,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.024
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.025
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.024.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.025.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version

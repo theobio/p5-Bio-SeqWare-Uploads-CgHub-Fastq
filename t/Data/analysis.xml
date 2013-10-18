@@ -23,7 +23,7 @@
 							<STEP_INDEX>0</STEP_INDEX>
 							<PREV_STEP_INDEX>NIL</PREV_STEP_INDEX>
 							<PROGRAM>upload-cghub-fastq.pl</PROGRAM>
-							<VERSION>0.000024</VERSION>
+							<VERSION>0.000025</VERSION>
 							<NOTES>zip-fastq-external; UNCID:2149605</NOTES>
 						</PIPE_SECTION>
 					</PIPELINE>

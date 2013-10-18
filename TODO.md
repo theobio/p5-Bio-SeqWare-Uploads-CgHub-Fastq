@@ -1,13 +1,20 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0024:
+This is release v0.000.0025:
+
+2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
+
+Have implemented rerun as a new workflow, RERUN. Automatically reruns failed
+uploads. No plans to implement --<template> options at this time.
 
 # ROADMAP
 
 These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
-NOTHING PLANNED
+
+v0.000.0026 [FIX] - Automating LIVE requires wait period. (incomplete
+understanding of process).
 
 # APPROVED / REJECTED
 
@@ -18,7 +25,6 @@ from "In consideration".
 2013-08-21 v0.000.001 [DOC] - Simplify module documentation
 2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
                               and test.
-2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
 2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options.
     Parameterize all settings different from bam uploads for future merge.
 2012-09-18 v0.000.021 [DEV] - Refactor updates and changes to upload record.

@@ -1,9 +1,12 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.025 2013-10-18 14:45:00
+ [MAJOR] - Add new RERUN mode to automatically retry uploads.
+
 0.000.024 2013-10-03 17:15:00
  [FIX]   - Fixed cut/paste bug with LIVE mode running as ZIP instead
            Missed - Didn't do top-down test (still not done...)
-           
+
 0.000.023 2013-10-03 17:00:00
  [FIX]   - Fixed crash bug with LIVE mode
            Missed - Didn't do top-down test (still not done...)
