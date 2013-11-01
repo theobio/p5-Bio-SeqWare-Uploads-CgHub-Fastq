@@ -1,11 +1,15 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0025:
+This is release v0.000.0026:
 
-2013-08-28 v0.000.005 [ADD] - Implement --rerun and --<template> (name) opts
+2013-11-01 v0.000.0026 [ADD] - Automating LIVE requires wait period.
+2012-09-18 v0.000.021  [DEV] - Refactor updates and changes to upload record.
+    Rule of 3 smell: functions with same task, different parameters.
 
-Have implemented rerun as a new workflow, RERUN. Automatically reruns failed
-uploads. No plans to implement --<template> options at this time.
+Have implemented LIVE waiting by using --recheckWaitning option (in hours).
+
+Refactored update code updates of upload records, merging rerun and normal
+run. parameterized to allow optional selection based on age in hours.
 
 # ROADMAP
 
@@ -13,8 +17,6 @@ These changes are planned for the release specified. Date and version indicate
 when they are expected to be released.
 
 
-v0.000.0026 [FIX] - Automating LIVE requires wait period. (incomplete
-understanding of process).
 
 # APPROVED / REJECTED
 
@@ -27,10 +29,9 @@ from "In consideration".
                               and test.
 2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options.
     Parameterize all settings different from bam uploads for future merge.
-2012-09-18 v0.000.021 [DEV] - Refactor updates and changes to upload record.
-    Rule of 3 smell: functions with same task, different parameters.
 2012-09-18 v0.000.022 [DEV] - Add tests using mock objects to trigger errors.
     Include tests for top-down usage.
+
 
 # IN CONSIDERATION
 

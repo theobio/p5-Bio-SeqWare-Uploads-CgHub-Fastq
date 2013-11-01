@@ -44,7 +44,7 @@
    "provides" : {
       "Bio::SeqWare::Uploads::CgHub::Fastq" : {
          "file" : "lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm",
-         "version" : "0.000025"
+         "version" : "0.000026"
       }
    },
    "release_status" : "stable",
@@ -53,5 +53,5 @@
          "http://opensource.org/licenses/gpl-license.php"
       ]
    },
-   "version" : "0.000025"
+   "version" : "0.000026"
 }

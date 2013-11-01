@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.025
+Version 0.000.026
 
 # SYNOPSIS
 
@@ -344,18 +344,9 @@ To $obj, adds
     $obj->doLive( $dbh );
 
 Sets the external status for an upload record. Because there may be a delay
-between submitting a file and cghub setting it live, I need to allow multiple
-checks for live status. That requires states of "not checked", "checked but
-not live yet", "bad", and "done" as states.
-
-    "not checked"           => status         = 'submit-fastq_completed';
-                               externalstatus = null
-    "checked, not live yet" => status         = 'live_waiting';
-                               externalstatus = 'recheck-waiting'
-    "bad"                   => status         = 'live_failed';
-                               externalstatus = 'recheck-waiting'
-    "live"                  => status         = 'live_completed';
-                               externalstatus = 'live'
+between submitting a file and cghub setting it live, This uses the
+\--recheckWaitHours parameter -- as self-"{'recheckWaitHours'} -- to determine
+if it can pick up the record yet
 
 ## doRerun
 
@@ -374,7 +365,7 @@ Selecting a sample for rerun:
 
 A CGHUB-FASTQ upload record is a rerun candidate if upload.status contains
 'fail', upload.external\_status is 'live' and upload.tstmp is more than
-\--rerunWait days ago. If selected, it will have its status changed to
+\--rerunWait hours ago. If selected, it will have its status changed to
 'rerun\_running'. If rerun fails, the status will be changed to
 'rerun\_failed\_<error\_tag>'. Note that failed reruns will themselves
 automatically be rerun after waiting. In-process samples will not be selected
@@ -407,16 +398,6 @@ removing in order processing\_files records, upload\_file records, file records.
 
 If no errors, delete the upload record, otherwise update its status to
 'rerun\_failed\_<message> status.
-
-## \_changeUploadRerunStage
-
-    my $uploadRec = $self->_changeUploadRerunStage( $dbh );
-
-Similar to \_changeUploadRunStage, except has different criteria for selection.
-
-uses $self->{'rerunWait'} config parmaeter (waiting time in days).
-
-
 
 ## \_getRerunData
 
@@ -822,17 +803,25 @@ an error message.
 
 ## \_changeUploadRunStage
 
-    $obj->_changeUploadRunStage( $dbh $fromStatus, $toStatus );
-    
+    $obj->_changeUploadRunStage( $dbh, $fromStatus, $toStatus );
+       # or
+    $obj->_changeUploadRunStage( $dbh, $fromStatus, $toStatus, $hourDelay );
 
-Loks for an upload record with the given $fromStatus status. If can't find any,
-just returns undef. If finds one, then changes its status to the given $toStatus
-and returns that upload record as a HR with the column names as keys.
+Looks for an upload record with status like the given $fromStatus status. If
+can't find any, just returns undef. If finds one, then changes its status to the
+given $toStatus and returns that upload record as a HR with the column names
+as keys.
 
-This does not set error as failure would likely be redundant.
+If the $hourDelay parameter is specified, then the update time of the upload
+record will also be checked, and only records whose status was changed more than
+the specified number of hours ago will be changed.
 
-Croaks without parameters, if there are db errors reported, or if no upload
-can be retirived.
+This does not change the upload record on failure as that would need to call
+this function, which just failed...
+
+Croaks if there are db errors reported, or if upload record is retirived but
+is not valid or can not be updated. Again, it is not an error to find no
+matching record on select (returns undef in that case).
 
 ## \_getTemplateData
 
@@ -950,9 +939,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.025
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.026
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.025.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.026.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version

@@ -1,5 +1,11 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.026 2013-11-01 17:15:00
+ [ADD] - Add new time delay for LIVE mode selection, param --recheckWaiting.
+ [DEV] - Merged task selection and rerun selection code.
+ [DEV] - Add shared test code module 
+ [DEV] - Start refactoring db session code to use shared data provider subs.
+
 0.000.025 2013-10-18 14:45:00
  [MAJOR] - Add new RERUN mode to automatically retry uploads.
 
