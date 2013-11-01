@@ -19,6 +19,12 @@ use DBD::Mock::Session;   # Test DBI data in/out, but not Testing Files and Test
 use Test::File::Contents;
 use Test::More 'tests' => 14;   # Run this many Test::More compliant subtests.
 
+use lib 't';
+use Test::Utils qw( error_tag_ok
+    dbMockStep_Begin    dbMockStep_Commit
+    dbMockStep_Rollback dbMockStep_SetTransactionLevel
+);
+
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
 my $DATA_DIR = File::Spec->catdir( "t", "Data" );
 my $TEMP_DIR = File::Temp->newdir();  # Auto-delete when out of scope
@@ -554,27 +560,23 @@ sub test__tagLaneToUpload {
     $obj->{'uploadFastqBaseDir'} = $fastqMetaDataDir;
     $obj->{'_fastqUploadUuid'} = $fastqUuid;
 
-    my @dbEventsOk = ({
-         'statement' => 'BEGIN WORK',
-         'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'bound_params' => [],
-        'results'     => [
-            [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir',  'cghub_analysis_id' ],
-            [ $laneId,    $sampleId,   $uploadId,   $bamMetaDataDir, $bamUuidDir        ],
-        ],
-    }, {
-        'statement'   => qr/INSERT INTO upload.*/msi,
-        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $status, $fastqMetaDataDir, $fastqUuid],
-        'results'  => [[ 'upload_id' ], [ $uploadId ]],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbEventsOk = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+            'bound_params' => [],
+            'results'     => [
+                [ 'lane_id', 'sample_id', 'upload_id', 'metadata_dir',  'cghub_analysis_id' ],
+                [ $laneId,    $sampleId,   $uploadId,   $bamMetaDataDir, $bamUuidDir        ],
+            ],
+        }, {
+            'statement'   => qr/INSERT INTO upload.*/msi,
+            'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $status, $fastqMetaDataDir, $fastqUuid],
+            'results'  => [[ 'upload_id' ], [ $uploadId ]],
+        },
+        dbMockStep_Commit(),
+    );
 
     $MOCK_DBH->{'mock_session'} =
         DBD::Mock::Session->new( 'newUploadRecord', @dbEventsOk );
@@ -1296,25 +1298,23 @@ sub test__insertFile {
     my $processingId1 = -20;
     my $processingId2 = -2020;
 
-    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO file.*/msi,
-        'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
-        'results'  => [[ 'file_id' ], [ $fileId ]],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId1, $fileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId2, $fileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    } ));
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', (
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO file.*/msi,
+            'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
+            'results'  => [[ 'file_id' ], [ $fileId ]],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId1, $fileId ],
+            'results'  => [[ 'rows' ], []],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId2, $fileId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    ));
 
     my $obj = $CLASS->new( $OPT_HR );
     $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
@@ -1340,25 +1340,23 @@ sub test__insertFile {
 
     # Error, (triggered by underlying bad processing result 2)
     {
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'BadinsertFileRec', ({
-            'statement' => 'BEGIN WORK',
-            'results'  => [[]],
-        }, {
-            'statement'    => qr/INSERT INTO file.*/msi,
-            'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
-            'results'  => [[ 'file_id' ], [ $fileId ]],
-        }, {
-            'statement'    => qr/INSERT INTO processing_file.*/msi,
-            'bound_params' => [ $processingId1, $fileId ],
-            'results'  => [[ 'rows' ], []],
-        }, {
-            'statement'    => qr/INSERT INTO processing_file.*/msi,
-            'bound_params' => [ $processingId2, $fileId ],
-            'results'  => [ [] ],
-        }, {
-           'statement' => 'ROLLBACK',
-            'results'  => [[]],
-        } ));
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'BadinsertFileRec', (
+            dbMockStep_Begin(),
+            {
+                'statement'    => qr/INSERT INTO file.*/msi,
+                'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $ZIP_FILE_FAKE_MD5 ],
+                'results'  => [[ 'file_id' ], [ $fileId ]],
+            }, {
+                'statement'    => qr/INSERT INTO processing_file.*/msi,
+                'bound_params' => [ $processingId1, $fileId ],
+                'results'  => [[ 'rows' ], []],
+            }, {
+                'statement'    => qr/INSERT INTO processing_file.*/msi,
+                'bound_params' => [ $processingId2, $fileId ],
+                'results'  => [ [] ],
+            },
+            dbMockStep_Rollback(),
+        ));
     
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_zipFileName'}    = $EXPECTED_OUT_FILE;
@@ -1383,17 +1381,15 @@ sub test__insertUploadFileRecord {
     my $fileId = -6;
     my $uploadId = -20;
 
-    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', ({
-         'statement' => 'BEGIN WORK',
-         'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO upload_file.*/msi,
-        'bound_params' => [ $uploadId, $fileId ],
-        'results'  => [ [ 'rows' ], [] ],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    } ));
+    $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'insertFileRec', (
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO upload_file.*/msi,
+            'bound_params' => [ $uploadId, $fileId ],
+            'results'  => [ [ 'rows' ], [] ],
+        },
+        dbMockStep_Commit(),
+    ));
 
     my $obj = $CLASS->new( $OPT_HR );
     $obj->{'_zipFileId'} = $fileId;
@@ -1417,17 +1413,15 @@ sub test__insertUploadFileRecord {
 
     # Update failed
     {
-         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'badInsertFileRec', ({
-         'statement' => 'BEGIN WORK',
-         'results'  => [[]],
-         }, {
-             'statement'    => qr/INSERT INTO upload_file.*/msi,
-             'bound_params' => [ $uploadId, $fileId ],
-             'results'  => [[]],
-         }, {
-             'statement' => 'ROLLBACK',
-             'results'  => [[]],
-         } ));
+        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'badInsertFileRec', (
+            dbMockStep_Begin(),
+            {
+                'statement'    => qr/INSERT INTO upload_file.*/msi,
+                'bound_params' => [ $uploadId, $fileId ],
+                'results'  => [[]],
+            },
+            dbMockStep_Rollback(),
+        ));
 
         my $obj = $CLASS->new( $OPT_HR );
         $obj->{'_zipFileId'} = $fileId;
@@ -1472,77 +1466,67 @@ sub test__doZip {
     # final upload value
     my $finalStatus = 'zip_completed';
 
-    my @dbEventsOk = ({
-         'statement' => 'BEGIN WORK',
-         'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'bound_params' => [],
-        'results'     => [
-            [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
-            [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
-        ],
-    }, {
-        'statement'   => qr/INSERT INTO upload.*/msi,
-        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
-        'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-        'bound_params' => [ $sampleId, $laneId],
-        'results'  => [
-            [ 'file_path', 'md5sum', 'workflow_run_id',
-              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
-              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
-        ]
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO file.*/msi,
-        # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
-        # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
-        'results'  => [[ 'file_id' ], [ $zipFileId ]],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId1, $zipFileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId2, $zipFileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO upload_file.*/msi,
-        'bound_params' => [ $fastqUploadId, $zipFileId ],
-        'results'  => [ [ 'rows' ], [] ],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $finalStatus, $fastqUploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbEventsOk = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+            'bound_params' => [],
+            'results'     => [
+                [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
+                [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
+            ],
+        }, {
+            'statement'   => qr/INSERT INTO upload.*/msi,
+            'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
+            'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
+        },
+        dbMockStep_Commit(),
+        {
+            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+            'bound_params' => [ $sampleId, $laneId],
+            'results'  => [
+                [ 'file_path', 'md5sum', 'workflow_run_id',
+                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+            ]
+        },
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO file.*/msi,
+            # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
+            # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
+            'results'  => [[ 'file_id' ], [ $zipFileId ]],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId1, $zipFileId ],
+            'results'  => [[ 'rows' ], []],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId2, $zipFileId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO upload_file.*/msi,
+            'bound_params' => [ $fastqUploadId, $zipFileId ],
+            'results'  => [ [ 'rows' ], [] ],
+        }, {
+            'statement' => 'COMMIT',
+            'results'  => [[]],
+        },
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/UPDATE upload.*/msi,
+            'bound_params' => [ $finalStatus, $fastqUploadId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    );
 
     {
         my $obj = $CLASS->new( $OPT_HR );
@@ -1617,77 +1601,65 @@ sub test_run_zip {
     # final upload value
     my $finalStatus = 'zip_completed';
 
-    my @dbEventsOk = ({
-         'statement' => 'BEGIN WORK',
-         'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
-        'bound_params' => [],
-        'results'     => [
-            [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
-            [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
-        ],
-    }, {
-        'statement'   => qr/INSERT INTO upload.*/msi,
-        'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
-        'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
-        'bound_params' => [ $sampleId, $laneId],
-        'results'  => [
-            [ 'file_path', 'md5sum', 'workflow_run_id',
-              'flowcell',  'lane_index', 'barcode', 'processing_id' ],
-            [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
-              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
-            [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
-              $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
-        ]
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO file.*/msi,
-        # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
-        # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
-        'results'  => [[ 'file_id' ], [ $zipFileId ]],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId1, $zipFileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-        'statement'    => qr/INSERT INTO processing_file.*/msi,
-        'bound_params' => [ $processingId2, $zipFileId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/INSERT INTO upload_file.*/msi,
-        'bound_params' => [ $fastqUploadId, $zipFileId ],
-        'results'  => [ [ 'rows' ], [] ],
-    }, {
-        'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $finalStatus, $fastqUploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbEventsOk = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'   => qr/SELECT vwf\.lane_id, u\.sample_id.*/msi,
+            'bound_params' => [],
+            'results'     => [
+                [ 'lane_id', 'sample_id', 'upload_id',  'metadata_dir',  'cghub_analysis_id' ],
+                [ $laneId,    $sampleId,   $bamUploadId, $bamMetaDataDir, $bamUuid           ],
+            ],
+        }, {
+            'statement'   => qr/INSERT INTO upload.*/msi,
+            'bound_params' => [ $sampleId, 'CGHUB_FASTQ', $initialStatus, $fastqMetaDataDir, $fastqUuid ],
+            'results'  => [ [ 'upload_id' ], [ $fastqUploadId ] ],
+        },
+        dbMockStep_Commit(),
+        {
+            'statement'   => qr/SELECT vwf\.file_path.*AND vw_files\.algorithm \= \'FinalizeCasava\'/msi,
+            'bound_params' => [ $sampleId, $laneId],
+            'results'  => [
+                [ 'file_path', 'md5sum', 'workflow_run_id',
+                  'flowcell',  'lane_index', 'barcode', 'processing_id' ],
+                [ $FASTQ1, $FASTQ1_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId1 ],
+                [ $FASTQ2, $FASTQ2_MD5, $fastqWorkflowRunId,
+                  $FLOWCELL,  $LANE_INDEX, $BARCODE, $processingId2 ],
+            ]
+        },
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO file.*/msi,
+            # Skipping bound parameter check as can't get the real md5 sum which is inserted here.
+            # 'bound_params' => [ $EXPECTED_OUT_FILE, $ZIP_FILE_META_TYPE, $ZIP_FILE_TYPE, $ZIP_FILE_DESCRIPTION, $obj->{'_zipFileMd5'} ],
+            'results'  => [[ 'file_id' ], [ $zipFileId ]],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId1, $zipFileId ],
+            'results'  => [[ 'rows' ], []],
+        }, {
+            'statement'    => qr/INSERT INTO processing_file.*/msi,
+            'bound_params' => [ $processingId2, $zipFileId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/INSERT INTO upload_file.*/msi,
+            'bound_params' => [ $fastqUploadId, $zipFileId ],
+            'results'  => [ [ 'rows' ], [] ],
+        },
+        dbMockStep_Commit(),
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/UPDATE upload.*/msi,
+            'bound_params' => [ $finalStatus, $fastqUploadId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    );
 
     $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( 'doZip', @dbEventsOk );
     {

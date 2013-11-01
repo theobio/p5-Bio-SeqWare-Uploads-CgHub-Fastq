@@ -17,6 +17,13 @@ use DBD::Mock;
 use Test::File::Contents;
 use Test::More 'tests' => 5;    # Run this many Test::More compliant subtests
 
+
+use lib 't';
+use Test::Utils qw( error_tag_ok
+    dbMockStep_Begin    dbMockStep_Commit
+    dbMockStep_Rollback dbMockStep_SetTransactionLevel
+);
+
 BEGIN {
 	*CORE::GLOBAL::readpipe = \&mock_readpipe; # Must be before use
 	require Bio::SeqWare::Uploads::CgHub::Fastq;
@@ -103,63 +110,57 @@ sub test_doMeta {
     my $uploadDir = File::Spec->catdir( "$TEMP_DIR", $uploadUuid );
     mkdir($uploadDir);
 
-    my @dbSession = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $oldStatus ],
-        'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,          $sampleId  ],
-        ]
-    }, {
-        'statement'    => qr/UPDATE upload/msi,
-        'bound_params' => [ $newStatus,  $uploadId ],
-        'results'  => [[ 'rows' ], []]
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT.*/msi,
-        'bound_params' => [ $uploadId ],
-        'results'  => [
-            [
-                'file_timestamp',       'sample_tcga_uuid',  'lane_accession',
-                'file_accession',       'file_md5sum',       'file_path',
-                'fastq_upload_basedir', 'fastq_upload_uuid', 'experiment_accession',
-                'sample_accession',     'experiment_description', 'experiment_id',
-                'instrument_model',     'sample_id'
-            ], [
-                $fileTimestamp,   $sampleTcgaUuid,     $laneAccession,
-                $fileAccession,   $fileMd5sum,         $filePath,
-                "$TEMP_DIR",      $uploadUuid,         $experimentAccession,
-                $sampleAccession, $experimentDescription, $experimentId,
-                $instrumentModel, $sampleId,
+    my @dbSession = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'    => qr/SELECT u\.\*/msi,
+            'bound_params' => [ $oldStatus ],
+            'results'  => [
+                [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+                [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,          $sampleId  ],
             ]
-        ]
-    }, {
-        'statement'    => qr/SELECT count\(\*\) as read_ends.*/msi,
-        'bound_params' => [ $experimentId ],
-        'results'  => [ ['read_ends'], [$readEnds], ]
-    }, {
-        'statement'    => qr/SELECT f\.file_path.*/msi,
-        'bound_params' => [ $sampleId ],
-        'results'  => [ ['file_path'], ["t/Data/toy.bam"], ]
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $finalStatus, $uploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+        }, {
+            'statement'    => qr/UPDATE upload/msi,
+            'bound_params' => [ $newStatus,  $uploadId ],
+            'results'  => [[ 'rows' ], []]
+        },
+        dbMockStep_Commit(),
+        {
+            'statement'    => qr/SELECT.*/msi,
+            'bound_params' => [ $uploadId ],
+            'results'  => [
+                [
+                    'file_timestamp',       'sample_tcga_uuid',  'lane_accession',
+                    'file_accession',       'file_md5sum',       'file_path',
+                    'fastq_upload_basedir', 'fastq_upload_uuid', 'experiment_accession',
+                    'sample_accession',     'experiment_description', 'experiment_id',
+                    'instrument_model',     'sample_id'
+                ], [
+                    $fileTimestamp,   $sampleTcgaUuid,     $laneAccession,
+                    $fileAccession,   $fileMd5sum,         $filePath,
+                    "$TEMP_DIR",      $uploadUuid,         $experimentAccession,
+                    $sampleAccession, $experimentDescription, $experimentId,
+                    $instrumentModel, $sampleId,
+                ]
+            ]
+        }, {
+            'statement'    => qr/SELECT count\(\*\) as read_ends.*/msi,
+            'bound_params' => [ $experimentId ],
+            'results'  => [ ['read_ends'], [$readEnds], ]
+        }, {
+            'statement'    => qr/SELECT f\.file_path.*/msi,
+            'bound_params' => [ $sampleId ],
+            'results'  => [ ['file_path'], ["t/Data/toy.bam"], ]
+        },
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/UPDATE upload.*/msi,
+            'bound_params' => [ $finalStatus, $uploadId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    );
 
     {
         my $obj = $CLASS->new( $OPT_HR );

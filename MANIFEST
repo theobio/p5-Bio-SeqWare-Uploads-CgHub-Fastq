@@ -35,6 +35,7 @@ t/pod.t
 t/rerun.t
 t/submit_meta.t
 t/submit_fastq.t
+t/Test/Utils.pm
 t/validate.t
 t/zip.t
 TODO.md

@@ -11,6 +11,12 @@ use Bio::SeqWare::Config; # Read the seqware config file
 use DBD::Mock;
 use Test::More 'tests' => 7;    # Run this many Test::More compliant subtests
 
+use lib 't';
+use Test::Utils qw( error_tag_ok
+    dbMockStep_Begin    dbMockStep_Commit
+    dbMockStep_Rollback dbMockStep_SetTransactionLevel
+);
+
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
 my $CLASS = 'Bio::SeqWare::Uploads::CgHub::Fastq';
@@ -276,52 +282,47 @@ sub test_doLive {
     my $uploadId       = -21;
     my $uploadUuid     = "21912089-1e42-4bcc-9ad9-fe9a9b88fb09";
 
-    my @dbSessionGood = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $oldStatus ],
-        'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId  ],
-        ]
-    }, {
-        'statement'    => qr/UPDATE upload/msi,
-        'bound_params' => [ $newStatus,  $uploadId ],
-        'results'  => [[ 'rows' ], []]
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $finalStatus, $externalStatus, $uploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbSessionGood = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'    => qr/SELECT u\.\*/msi,
+            'bound_params' => [ $oldStatus ],
+            'results'  => [
+                [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+                [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId  ],
+            ]
+        }, {
+            'statement'    => qr/UPDATE upload/msi,
+            'bound_params' => [ $newStatus,  $uploadId ],
+            'results'  => [[ 'rows' ], []]
+        }, {
+           'statement' => 'COMMIT',
+            'results'  => [[]],
+        }, {
+            'statement' => 'BEGIN WORK',
+            'results'  => [[]],
+        }, {
+            'statement'    => qr/UPDATE upload.*/msi,
+            'bound_params' => [ $finalStatus, $externalStatus, $uploadId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    );
 
-    my @dbSessionEmpty = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $oldStatus ],
-        'results'  => [[]]
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbSessionEmpty = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'    => qr/SELECT u\.\*/msi,
+            'bound_params' => [ $oldStatus ],
+            'results'  => [[]]
+        }, {
+           'statement' => 'COMMIT',
+            'results'  => [[]],
+        },
+        dbMockStep_Commit(),
+    );
 
     # Test ok when doLive finds sample to run.
     {

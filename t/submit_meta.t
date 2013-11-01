@@ -15,6 +15,12 @@ use Bio::SeqWare::Config; # Read the seqware config file
 use DBD::Mock;
 use Test::More 'tests' => 2;    # Run this many Test::More compliant subtests
 
+use lib 't';
+use Test::Utils qw( error_tag_ok
+    dbMockStep_Begin    dbMockStep_Commit
+    dbMockStep_Rollback dbMockStep_SetTransactionLevel
+);
+
 BEGIN {
 	*CORE::GLOBAL::readpipe = \&mock_readpipe; # Must be before use
 	require Bio::SeqWare::Uploads::CgHub::Fastq;
@@ -89,37 +95,30 @@ sub test_doSubmitMeta {
     my $fakeUnknowMessage = "Fake (UNKNOWN) Submission Return\n"
                           . "This is not the result you are looking for.\n";
 
-    my @dbSession = ({
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-         'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-         'results'  => [[]],
-    }, {
-        'statement'    => qr/SELECT \*/msi,
-        'bound_params' => [ $oldStatus ],
-        'results'  => [
-            [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
-            [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId   ],
-        ]
-    }, {
-        'statement'    => qr/UPDATE upload/msi,
-        'bound_params' => [ $newStatus,  $uploadId ],
-        'results'  => [[ 'rows' ], []]
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    }, {
-        'statement' => 'BEGIN WORK',
-        'results'  => [[]],
-    }, {
-        'statement'    => qr/UPDATE upload.*/msi,
-        'bound_params' => [ $finalStatus, $uploadId ],
-        'results'  => [[ 'rows' ], []],
-    }, {
-       'statement' => 'COMMIT',
-        'results'  => [[]],
-    });
+    my @dbSession = (
+        dbMockStep_Begin(),
+        dbMockStep_SetTransactionLevel(),
+        {
+            'statement'    => qr/SELECT u\.\*/msi,
+            'bound_params' => [ $oldStatus ],
+            'results'  => [
+                [ 'upload_id', 'status',   'metadata_dir', 'cghub_analysis_id', 'sample_id' ],
+                [ $uploadId,   $oldStatus, $TEMP_DIR,      $uploadUuid,         $sampleId   ],
+            ]
+        }, {
+            'statement'    => qr/UPDATE upload/msi,
+            'bound_params' => [ $newStatus,  $uploadId ],
+            'results'  => [[ 'rows' ], []]
+        },
+        dbMockStep_Commit(),
+        dbMockStep_Begin(),
+        {
+            'statement'    => qr/UPDATE upload.*/msi,
+            'bound_params' => [ $finalStatus, $uploadId ],
+            'results'  => [[ 'rows' ], []],
+        },
+        dbMockStep_Commit(),
+    );
 
     {
         $mock_readpipe->{'mock'} = 1;

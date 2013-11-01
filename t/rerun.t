@@ -9,7 +9,13 @@ use File::Temp;           # Simple files for testing
 
 use Bio::SeqWare::Config; # Read the seqware config file
 use DBD::Mock;
-use Test::More 'tests' => 14;    # Run this many Test::More compliant subtests
+use Test::More 'tests' => 13;    # Run this many Test::More compliant subtests
+
+use lib 't';
+use Test::Utils qw( error_tag_ok
+    dbMockStep_Begin    dbMockStep_Commit
+    dbMockStep_Rollback dbMockStep_SetTransactionLevel
+);
 
 use Bio::SeqWare::Uploads::CgHub::Fastq;
 
@@ -109,8 +115,6 @@ sub mock__deleteProcessingFilesRec_die {
 #
 # TESTS
 #
-
-subtest( '_changeUploadRerunStage()' => \&test__changeUploadRerunStage );
 
 subtest( '_getAssociatedFileId()'            => \&test__getAssociatedFileId );
 subtest( '_getFilePath()'                    => \&test__getFilePath );
@@ -627,310 +631,6 @@ sub test__getAssociatedProcessingFilesIds {
 
 }
 
-sub test__changeUploadRerunStage {
-    plan( tests => 12 );
-
-    # Good run (no sample selection parameters)
-    {
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'results'  => [
-                    [ 'upload_id',    'sample_id',
-                      'status',       'external_status',
-                      'metadata_dir', 'cghub_analysis_id',
-                      'target'  ],
-                    [ $MOCK_UPLOAD_REC{'upload_id'},    $MOCK_UPLOAD_REC{'sample_id'},
-                      $MOCK_UPLOAD_REC{'status'},       $MOCK_UPLOAD_REC{'external_status'},
-                      $MOCK_UPLOAD_REC{'metadata_dir'}, $MOCK_UPLOAD_REC{'cghub_analysis_id'},
-                      $MOCK_UPLOAD_REC{'target'},
-                    ],
-                ]
-            }, {
-                'statement'    => qr/UPDATE upload/msi,
-                'bound_params' => [ 'rerun_running', $MOCK_UPLOAD_REC{'upload_id'} ],
-                'results'  => [[ 'rows' ], []]
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
-        );
-
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        my $obj = $CLASS->new( $OPT_HR );
-        {
-            my $testThatThisSub = "Correct upload record (given fixed DBIO output)";
-            my $got = $obj->_changeUploadRerunStage( $MOCK_DBH );
-            my $want = { %MOCK_UPLOAD_REC, 'status' => 'rerun_running' };
-            is_deeply( $got, $want, $testThatThisSub);
-        }
-    }
-
-    # Good run, nothing to do
-    {
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-             'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-             'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'results'  => [[]]
-            }, {
-               'statement' => 'COMMIT',
-               'results'   => [[]],
-            }
-        );
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        my $obj = $CLASS->new( $OPT_HR );
-        {
-            my $testThatThisSub = "Correct upload record (given no matching record found)";
-            my $got = $obj->_changeUploadRerunStage( $MOCK_DBH );
-            my $want = undef;
-            is( $got, $want, $testThatThisSub);
-        }
-
-    }
-
-    # Good run (all sample selection parameters)
-    {
-        my $local_opt_HR = {
-            %$OPT_HR,
-            'sampleId' => -19,
-            'sampleAccession' => 999999,
-            'sampleAlias' => "PIPE_0000",
-            'sampleType' => 'BRCA',
-            'sampleTitle' => 'TCGA-CS-6188-01A-11R-1896-07',
-            'sampleUuid' => '00000000-0000-0000-0000-000000000000',
-        };
-        my $obj = $CLASS->new( $local_opt_HR );
-
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'bound_params' => [
-                    $local_opt_HR->{'sampleId'},    $local_opt_HR->{'sampleAccession'},
-                    $local_opt_HR->{'sampleAlias'}, $local_opt_HR->{'sampleUuid'},
-                    $local_opt_HR->{'sampleTitle'}, $local_opt_HR->{'sampleType'}
-                ],
-                'results'  => [
-                    [ 'upload_id',    'sample_id',
-                      'status',       'external_status',
-                      'metadata_dir', 'cghub_analysis_id',
-                      'target'  ],
-                    [ $MOCK_UPLOAD_REC{'upload_id'},    $MOCK_UPLOAD_REC{'sample_id'},
-                      $MOCK_UPLOAD_REC{'status'},       $MOCK_UPLOAD_REC{'external_status'},
-                      $MOCK_UPLOAD_REC{'metadata_dir'}, $MOCK_UPLOAD_REC{'cghub_analysis_id'},
-                      $MOCK_UPLOAD_REC{'target'},
-                    ],
-                ]
-            }, {
-                'statement'    => qr/UPDATE upload/msi,
-                'bound_params' => [ 'rerun_running', $MOCK_UPLOAD_REC{'upload_id'} ],
-                'results'  => [[ 'rows' ], []]
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
-        );
-
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        {
-            my $testThatThisSub = "Correct upload record (given fixed DBIO output)";
-            my $got = $obj->_changeUploadRerunStage( $MOCK_DBH );
-            my $want = { %MOCK_UPLOAD_REC, 'status' => 'rerun_running' };
-            is_deeply( $got, $want, $testThatThisSub);
-        }
-    }
-    
-    # Bad run, triggers error exit due to dbh error (returned two record on update).
-    {
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'results'  => [
-                    [ 'upload_id',    'sample_id',
-                      'status',       'external_status',
-                      'metadata_dir', 'cghub_analysis_id',
-                      'target'  ],
-                    [ $MOCK_UPLOAD_REC{'upload_id'},    $MOCK_UPLOAD_REC{'sample_id'},
-                      $MOCK_UPLOAD_REC{'status'},       $MOCK_UPLOAD_REC{'external_status'},
-                      $MOCK_UPLOAD_REC{'metadata_dir'}, $MOCK_UPLOAD_REC{'cghub_analysis_id'},
-                      $MOCK_UPLOAD_REC{'target'},
-                    ],
-                ]
-            }, {
-                'statement'    => qr/UPDATE upload/msi,
-                'bound_params' => [ 'rerun_running', $MOCK_UPLOAD_REC{'upload_id'} ],
-                'results'  => [[ 'rows' ], [], []]
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]],
-            }
-        );
-
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        my $obj = $CLASS->new( $OPT_HR );
-        eval {
-            $obj->_changeUploadRerunStage( $MOCK_DBH );
-        };
-        my $error = $@;
-        {
-            my $testThatThisSub = "Rollback with error message if update fails";
-            my $got = $error;
-            my $want = qr/_changeUploadRerunStage failed to update rerun upload status for upload $MOCK_UPLOAD_REC{'upload_id'}\./;
-            like( $got, $want, $testThatThisSub);
-        }
-        {
-            my $testThatThisSub = "Adds wrapping error message to specific errpr response";
-            my $got = $error;
-            my $want = qr/Failed trying to tag a \'fail\' upload record for rerun\: _changeUploadRerunStage .+/;
-            like( $got, $want, $testThatThisSub);
-        }
-        {
-            my $testThatThisSub = "Sets error tag if bad update count";
-            my $got = $obj->{'error'};
-            my $want = "unstored_lookup_error";
-            is( $got, $want, $testThatThisSub );
-        }
-    }
-
-    # Bad run, triggers error exit due to no upload_id returned (shouldn't be possible).
-    {
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'results'  => [
-                    [ 'upload_id',    'sample_id',
-                      'status',       'external_status',
-                      'metadata_dir', 'cghub_analysis_id',
-                      'target'  ],
-                    [ undef,                            $MOCK_UPLOAD_REC{'sample_id'},
-                      $MOCK_UPLOAD_REC{'status'},       $MOCK_UPLOAD_REC{'external_status'},
-                      $MOCK_UPLOAD_REC{'metadata_dir'}, $MOCK_UPLOAD_REC{'cghub_analysis_id'},
-                      $MOCK_UPLOAD_REC{'target'},
-                    ],
-                ]
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]],
-            }
-        );
-
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        my $obj = $CLASS->new( $OPT_HR );
-        eval {
-            $obj->_changeUploadRerunStage( $MOCK_DBH );
-        };
-        my $error = $@;
-        {
-            my $testThatThisSub = "Rollback with error message if no upload_id retreved";
-            my $got = $error;
-            my $want = qr/_changeUploadRerunStage retrieved record without an upload_id\. Strange\./;
-            like( $got, $want, $testThatThisSub);
-        }
-        {
-            my $testThatThisSub = "Sets error tag if no upload_id retrieved.";
-            my $got = $obj->{'error'};
-            my $want = "unstored_lookup_error";
-            is( $got, $want, $testThatThisSub );
-        }
-    }
-
-    # Bad run, triggers error exit due to no status returned (shouldn't be possible).
-    {
-        my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-                'statement'    => qr/SELECT u\.\*/msi,
-                'results'  => [
-                    [ 'upload_id',    'sample_id',
-                      'status',       'external_status',
-                      'metadata_dir', 'cghub_analysis_id',
-                      'target'  ],
-                    [ $MOCK_UPLOAD_REC{'upload_id'},    $MOCK_UPLOAD_REC{'sample_id'},
-                      undef,                            $MOCK_UPLOAD_REC{'external_status'},
-                      $MOCK_UPLOAD_REC{'metadata_dir'}, $MOCK_UPLOAD_REC{'cghub_analysis_id'},
-                      $MOCK_UPLOAD_REC{'target'},
-                    ],
-                ]
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]],
-            }
-        );
-
-        $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
-        my $obj = $CLASS->new( $OPT_HR );
-        eval {
-            $obj->_changeUploadRerunStage( $MOCK_DBH );
-        };
-        my $error = $@;
-        {
-            my $testThatThisSub = "Rollback with error message if no status retreved";
-            my $got = $error;
-            my $want = qr/_changeUploadRerunStage retrieved record without a status\. Strange\./;
-            like( $got, $want, $testThatThisSub);
-        }
-        {
-            my $testThatThisSub = "Sets error tag if no status retrieved.";
-            my $got = $obj->{'error'};
-            my $want = "unstored_lookup_error";
-            is( $got, $want, $testThatThisSub );
-        }
-    }
-
-    # Bad Parameters - $dbh
-    {
-        my $obj = $CLASS->new( $OPT_HR );
-        eval {
-             $obj->_changeUploadRerunStage();
-        };
-        {
-            my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
-            my $got = $@;
-            my $want = qr/^_changeUploadRerunStage\(\) missing \$dbh parameter\./;
-            like( $got, $want, $testThatThisSub);
-        }{
-            my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";
-            my $got = $obj->{'error'};
-            my $want = 'param__changeUploadRerunStage_dbh';
-            is( $got, $want, $testThatThisSub);
-        }
-    }
-}
-
 sub test__deleteUploadRec {
 
     plan( tests => 3 );
@@ -1221,16 +921,9 @@ sub test__cleanDatabase {
     # Smoke test, with everything
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Commit(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1258,16 +951,9 @@ sub test__cleanDatabase {
     # Smoke test, everything, minus one processing record.
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Commit(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1295,16 +981,9 @@ sub test__cleanDatabase {
     # Delete with no file record => no upload_file or processing_files by reference constraint.
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Commit(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1329,16 +1008,9 @@ sub test__cleanDatabase {
     # Delete with no processing_file records.
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Commit(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1365,16 +1037,9 @@ sub test__cleanDatabase {
     # Error propagation - from within this subroutine
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [],
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Rollback(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1407,16 +1072,9 @@ sub test__cleanDatabase {
     # Error propagation - from within called subroutine
     {
         my @dbSession = (
-            {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]],
-            }
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            dbMockStep_Rollback(),
         );
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
 
@@ -1935,13 +1593,9 @@ sub test_doRerun {
         my $processingFilesId1 = -201;
         my $processingFilesId2 = -202;
         my @dbSession = (
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
             {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
                 'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
@@ -1958,10 +1612,9 @@ sub test_doRerun {
                 'statement'    => qr/UPDATE upload/msi,
                 'bound_params' => [ 'rerun_running', $uploadId ],
                 'results'  => [[ 'rows' ], []]
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }, {
+            },
+            dbMockStep_Commit(),
+            {
                 'statement'    => qr/SELECT file_id/msi,
                 'bound_params' => [ $uploadId ],
                 'results'  => [[ 'file_id' ], [ $fileId ]],
@@ -1973,13 +1626,10 @@ sub test_doRerun {
                 'statement'    => qr/SELECT processing_files_id/msi,
                 'bound_params' => [ $fileId ],
                 'results'  => [[ 'processing_files_id' ], [ $processingFilesId1 ], [$processingFilesId2]],
-            }, {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
+            },
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
+            {
               'statement'    => "DELETE FROM processing_files WHERE processing_files_id = ?",
               'bound_params' => [ $processingFilesId1 ],
               'results'  => [[ 'rows' ], []]
@@ -1999,10 +1649,8 @@ sub test_doRerun {
               'statement'    => "DELETE FROM upload WHERE upload_id = ?",
               'bound_params' => [ $uploadId ],
               'results'  => [[ 'rows' ], []]
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            } 
+            },
+            dbMockStep_Commit(),
         );
 
 
@@ -2021,19 +1669,13 @@ sub test_doRerun {
     # Nothing to do run
     {
         my @dbSession = (
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
             {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
                 'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [ [], ]
-            }, {
-               'statement' => 'COMMIT',
-                'results'  => [[]],
-            }
+            },
+            dbMockStep_Commit(),
         );
 
 
@@ -2061,13 +1703,9 @@ sub test_doRerun {
 
         my $uploadId = $uploadRec->{'upload_id'};
         my @dbSession = (
+            dbMockStep_Begin(),
+            dbMockStep_SetTransactionLevel(),
             {
-                'statement' => 'BEGIN WORK',
-                'results'  => [[]],
-            }, {
-                 'statement' => 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-                 'results'  => [[]],
-            }, {
                 'statement'    => qr/SELECT u\.\*/msi,
                 'results'  => [
                     [ 'upload_id',    'sample_id',
@@ -2084,10 +1722,8 @@ sub test_doRerun {
                 'statement'    => qr/UPDATE upload/msi,
                 'bound_params' => [ 'rerun_running', $uploadId ],
                 'results'  => [ [] ]
-            }, {
-               'statement' => 'ROLLBACK',
-                'results'  => [[]]
-            }
+            },
+            dbMockStep_Rollback(),
         );
 
         $MOCK_DBH->{'mock_session'} = DBD::Mock::Session->new( @dbSession );
@@ -2096,9 +1732,9 @@ sub test_doRerun {
              $obj->doRerun( $MOCK_DBH );
         };
         {
-            my $testThatThisSub = "Throws descriptive error if no dbh parameter passed.";
+            my $testThatThisSub = "Throws descriptive error when rerun fails.";
             my $got = $@;
-            my $want = qr/^DO_RERUN\: Failed trying to tag a \'fail\' upload record for rerun\: _changeUploadRerunStage failed to update rerun upload status for upload $uploadId\./;
+            my $want = qr/^DO_RERUN\: Error changing upload status from \%fail\% to rerun_running:._changeUploadRunStage failed to update upload $uploadId\./s;
             like( $got, $want, $testThatThisSub);
         }{
             my $testThatThisSub = "Sets correct error tag if no dbh parameter passed.";

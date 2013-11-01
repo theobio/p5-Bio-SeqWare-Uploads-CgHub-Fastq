@@ -398,7 +398,7 @@ Filter sample to upload by upload id.
 
 =item --rerunWait INT
 
-Waiting time (in days) before attempting atuo rerun.
+Waiting time (in hours) before attempting atuo rerun. Default is 168 (7 days).
 
 =back
 
@@ -416,7 +416,7 @@ sub _processCommandLine {
         'xmlSchema'        => 'SRA_1-5',
         'templateBaseDir'  => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
         'recheckWaitHours' => 24,
-        'rerunWait'        => 7,
+        'rerunWait'        => 168,
     };
 
     # Combine local defaults with ()over-ride by) config file options

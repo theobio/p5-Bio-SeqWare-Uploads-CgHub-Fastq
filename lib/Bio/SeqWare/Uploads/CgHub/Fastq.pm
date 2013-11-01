@@ -639,18 +639,9 @@ sub doSubmitFastq() {
     $obj->doLive( $dbh );
 
 Sets the external status for an upload record. Because there may be a delay
-between submitting a file and cghub setting it live, I need to allow multiple
-checks for live status. That requires states of "not checked", "checked but
-not live yet", "bad", and "done" as states.
-
-  "not checked"           => status         = 'submit-fastq_completed';
-                             externalstatus = null
-  "checked, not live yet" => status         = 'live_waiting';
-                             externalstatus = 'recheck-waiting'
-  "bad"                   => status         = 'live_failed';
-                             externalstatus = 'recheck-waiting'
-  "live"                  => status         = 'live_completed';
-                             externalstatus = 'live'
+between submitting a file and cghub setting it live, This uses the
+--recheckWaitHours parameter -- as self-"{'recheckWaitHours'} -- to determine
+if it can pick up the record yet
 
 =cut
 
@@ -664,17 +655,16 @@ sub doLive() {
     }
 
     eval {
-        # Try new files first - rechecks will be done manually for now.
+        # Look for old enough record to change.
         my $newStatus = 'live_running';
         my $oldStatus = 'submit-fastq_completed';
-        my $uploadHR = $self->_changeUploadRunStage( $dbh, $oldStatus, $newStatus );
+        my $uploadHR = $self->_changeUploadRunStage( $dbh, $oldStatus, $newStatus, $self->{'recheckWaitHours'});
         # If found one, change its value
         if ($uploadHR)  {
             my $externalStatus = $self->_live( $uploadHR );
             $newStatus = $self->_statusFromExternal( $externalStatus );
             $self->_updateExternalStatus( $dbh, $uploadHR->{'upload_id'}, $newStatus, $externalStatus);
         }
-
         # If don't find one, fine.
     };
     if ($@) {
@@ -707,7 +697,7 @@ Selecting a sample for rerun:
 
 A CGHUB-FASTQ upload record is a rerun candidate if upload.status contains
 'fail', upload.external_status is 'live' and upload.tstmp is more than
---rerunWait days ago. If selected, it will have its status changed to
+--rerunWait hours ago. If selected, it will have its status changed to
 'rerun_running'. If rerun fails, the status will be changed to
 'rerun_failed_<error_tag>'. Note that failed reruns will themselves
 automatically be rerun after waiting. In-process samples will not be selected
@@ -753,7 +743,7 @@ sub doRerun {
     }
 
     eval {
-        my $uploadRecord    = $self->_changeUploadRerunStage( $dbh );
+        my $uploadRecord    = $self->_changeUploadRunStage( $dbh, '%fail%', 'rerun_running', $self->{'rerunWait'} );
         if (! $uploadRecord) {
             return 1; # Nothing to redo.
         }
@@ -771,147 +761,6 @@ sub doRerun {
         croak $error;
     }
    return 1;
-}
-
-=head2 _changeUploadRerunStage
-
-    my $uploadRec = $self->_changeUploadRerunStage( $dbh );
-
-Similar to _changeUploadRunStage, except has different criteria for selection.
-
-uses $self->{'rerunWait'} config parmaeter (waiting time in days).
-
-
-=cut
-
-sub _changeUploadRerunStage {
-
-    my $self = shift;
-    my $dbh = shift;
-
-    unless ($dbh) {
-        $self->{'error'} = "param__changeUploadRerunStage_dbh";
-        croak ("_changeUploadRerunStage() missing \$dbh parameter.");
-    }
-
-    my %upload;
-    my $toStatus = 'rerun_running';
-
-    # Setup SQL to select upload record.
-    my $selectSql =
-       "SELECT u.*
-        FROM upload AS u, sample AS s
-        WHERE u.target = 'CGHUB_FASTQ'
-          AND s.sample_id = u.sample_id
-          AND u.status like '%fail%'
-          AND u.tstmp < (NOW() - INTERVAL '$self->{'rerunWait'} DAY')";
-
-    if ($self->{'sampleId'       }) { $selectSql .= " AND s.sample_id = ?";    }
-    if ($self->{'sampleAccession'}) { $selectSql .= " AND s.sw_accession = ?"; }
-    if ($self->{'sampleAlias'    }) { $selectSql .= " AND s.alias = ?";       }
-    if ($self->{'sampleUuid'     }) { $selectSql .= " AND s.tcga_uuid = ?";    }
-    if ($self->{'sampleTitle'    }) { $selectSql .= " AND s.title = ?";        }
-    if ($self->{'sampleType'     }) { $selectSql .= " AND s.type = ?";         }
-
-    $selectSql .= " ORDER by upload_id DESC limit 1";
-
-    $self->sayVerbose( "Selction sql:\$selectSql");
-
-    # Setup SQL parameters for the selection SQL, same order as above.
-    my @sqlParameters;
-    if ($self->{'sampleId'       }) { push @sqlParameters, $self->{'sampleId'       }; }
-    if ($self->{'sampleAccession'}) { push @sqlParameters, $self->{'sampleAccession'}; }
-    if ($self->{'sampleAlias'    }) { push @sqlParameters, $self->{'sampleAlias'    }; }
-    if ($self->{'sampleUuid'     }) { push @sqlParameters, $self->{'sampleUuid'     }; }
-    if ($self->{'sampleTitle'    }) { push @sqlParameters, $self->{'sampleTitle'    }; }
-    if ($self->{'sampleType'     }) { push @sqlParameters, $self->{'sampleType'     }; }
-
-    # Setup SQL update statement to claim upload record for current run.
-    my $updateSQL =
-       "UPDATE upload
-        SET status = ?
-        WHERE upload_id = ?";
-
-    # DB transaction
-    eval {
-        $dbh->begin_work();
-        $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
-
-        my $selectionSTH = $dbh->prepare( $selectSql );
-        if (@sqlParameters && scalar @sqlParameters > 0) {
-            $self->sayVerbose( "Select SQL parameters:\n" . Dumper( \@sqlParameters) );
-            $selectionSTH->execute(@sqlParameters);
-        }
-        else {
-            $selectionSTH->execute();
-        }
-        my $rowHR = $selectionSTH->fetchrow_hashref();
-        $selectionSTH->finish();
-
-        if (! defined $rowHR) {
-
-            # Nothing to update - this is a normal exit
-            $dbh->commit();
-            $self->sayVerbose("Found no uplaad record to rerun with status "
-                . " containing 'fail' and timestamp more than $self->{'rerunWait'} days ago." );
-            return;
-        }
-        else {
-            # Will be passing this back, so make copy.
-            %upload = %$rowHR;
-
-            unless ( $upload{'upload_id'} ) {
-                $self->{'error'} = "unstored_lookup_error";
-                croak "_changeUploadRerunStage retrieved record without an upload_id. Strange.";
-            }
-            my $uploadId = $upload{'upload_id'};
-
-            unless ( $upload{'status'} ) {
-                $self->{'error'} = "unstored_lookup_error";
-                croak "_changeUploadRerunStage retrieved record without a status. Strange.";
-            }
-            my $fromStatus = $upload{'status'};
-
-            $self->sayVerbose("Found upload record to rerun: "
-                . " sample id = $upload{'sample_id'};"
-                . " upload id = $uploadId;"
-                . " old status = '$fromStatus';"
-                . " new_status = '$toStatus'.");
-
-            my $updateSTH = $dbh->prepare( $updateSQL );
-            $updateSTH->execute( $toStatus, $uploadId, );
-            if ($updateSTH->rows() != 1) {
-                $self->{'error'} = "unstored_lookup_error";
-                croak "_changeUploadRerunStage failed to update rerun upload status for upload $uploadId.\n";
-            }
-            $updateSTH->finish();
-
-            $dbh->commit();
-
-            $self->{'_fastqUploadId'} = $upload{'upload_id'};
-            $upload{'status'} = $toStatus; # Correct local copy to match db.
-        }
-    };
-    if ($@) {
-        my $error = $@;
-        eval {
-            $dbh->rollback();
-        };
-        if ($@) {
-            $error .= "\nALSO: ***Rollback appeared to fail*** $@ \n";
-        }
-        if (! $self->{'error'}) {
-                $self->{'error'} = "update_rerun_upload";
-        }
-        croak "Failed trying to tag a 'fail' upload record for rerun: $error\n";
-    }
-
-    if (! %upload) {
-        return undef;
-    }
-    else {
-        return \%upload;
-    }
 }
 
 =head2 _getRerunData
@@ -2643,16 +2492,25 @@ sub _zip() {
 
 =head2 _changeUploadRunStage
 
-    $obj->_changeUploadRunStage( $dbh $fromStatus, $toStatus );
-    
-Loks for an upload record with the given $fromStatus status. If can't find any,
-just returns undef. If finds one, then changes its status to the given $toStatus
-and returns that upload record as a HR with the column names as keys.
+    $obj->_changeUploadRunStage( $dbh, $fromStatus, $toStatus );
+       # or
+    $obj->_changeUploadRunStage( $dbh, $fromStatus, $toStatus, $hourDelay );
 
-This does not set error as failure would likely be redundant.
+Looks for an upload record with status like the given $fromStatus status. If
+can't find any, just returns undef. If finds one, then changes its status to the
+given $toStatus and returns that upload record as a HR with the column names
+as keys.
 
-Croaks without parameters, if there are db errors reported, or if no upload
-can be retirived.
+If the $hourDelay parameter is specified, then the update time of the upload
+record will also be checked, and only records whose status was changed more than
+the specified number of hours ago will be changed.
+
+This does not change the upload record on failure as that would need to call
+this function, which just failed...
+
+Croaks if there are db errors reported, or if upload record is retirived but
+is not valid or can not be updated. Again, it is not an error to find no
+matching record on select (returns undef in that case).
 
 =cut
 
@@ -2662,6 +2520,7 @@ sub _changeUploadRunStage {
     my $dbh = shift;
     my $fromStatus = shift;
     my $toStatus = shift;
+    my $hoursToWait = shift;
 
     unless ($dbh) {
         $self->{'error'} = "param__changeUploadRunStage_dbh";
@@ -2678,13 +2537,13 @@ sub _changeUploadRunStage {
 
     my %upload;
 
-    # Setup select upload record SQL
+    # Setup SQL to select upload record.
     my $selectSql =
-       "SELECT *
+       "SELECT u.*
         FROM upload AS u, sample AS s
         WHERE u.target = 'CGHUB_FASTQ'
           AND s.sample_id = u.sample_id
-          AND u.status = ?";
+          AND u.status like ?";
 
     if ($self->{'sampleId'       }) { $selectSql .= " AND s.sample_id = ?";    }
     if ($self->{'sampleAccession'}) { $selectSql .= " AND s.sw_accession = ?"; }
@@ -2695,10 +2554,11 @@ sub _changeUploadRunStage {
 
     $selectSql .= " ORDER by upload_id DESC limit 1";
 
-    $self->sayVerbose( "Selction sql:\$selectSql");
+    $self->sayVerbose( "Selction sql: $selectSql");
 
-    # Setup SQL parameters for select upload
+    # Setup SQL parameters for the selection SQL, same order as above.
     my @sqlParameters = ( $fromStatus );
+
     if ($self->{'sampleId'       }) { push @sqlParameters, $self->{'sampleId'       }; }
     if ($self->{'sampleAccession'}) { push @sqlParameters, $self->{'sampleAccession'}; }
     if ($self->{'sampleAlias'    }) { push @sqlParameters, $self->{'sampleAlias'    }; }
@@ -2706,12 +2566,15 @@ sub _changeUploadRunStage {
     if ($self->{'sampleTitle'    }) { push @sqlParameters, $self->{'sampleTitle'    }; }
     if ($self->{'sampleType'     }) { push @sqlParameters, $self->{'sampleType'     }; }
 
+    $self->sayVerbose( "Select SQL parameters: @sqlParameters");
+
+    # Setup SQL update statement to claim selected upload.
     my $updateSQL =
        "UPDATE upload
         SET status = ?
         WHERE upload_id = ?";
 
-    $self->sayVerbose("Looking for upload record with status \"$fromStatus\".");
+    $self->sayVerbose("Looking for upload record with status like \"$fromStatus\".");
 
     # DB transaction
     eval {
@@ -2719,13 +2582,7 @@ sub _changeUploadRunStage {
         $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
 
         my $selectionSTH = $dbh->prepare( $selectSql );
-        if (@sqlParameters && scalar @sqlParameters > 0) {
-            $self->sayVerbose( "Select SQL parameters:\n" . Dumper( \@sqlParameters) );
-            $selectionSTH->execute(@sqlParameters);
-        }
-        else {
-            $selectionSTH->execute();
-        }
+        $selectionSTH->execute(@sqlParameters);
         my $rowHR = $selectionSTH->fetchrow_hashref();
         $selectionSTH->finish();
 
@@ -2734,28 +2591,43 @@ sub _changeUploadRunStage {
             $dbh->commit();
             undef %upload;  # Just to be clear.
             $self->sayVerbose("Found no uplaad record with status \"$fromStatus\"." );
+            if ($hoursToWait) {
+                $self->sayVerbose("(where timestamp more than $hoursToWait hours ago.)" );
+            }
+            return;
         }
         else {
             # Will be passing this back, so make copy.
             %upload = %$rowHR;
 
             unless ( $upload{'upload_id'} ) {
-                $self->{'error'} = "status_query_$fromStatus" . "_to_" . $toStatus;
-                croak "Failed to retrieve upload data.\n";
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRunStage retrieved upload record without an upload_id. Strange.";
             }
-            unless ( $upload{'sample_id'} ) {
-                $self->{'error'} = "status_query_$fromStatus" . "_to_" . $toStatus;
-                croak "Failed to retrieve sample id in upload data.\n";
-            }
+            my $uploadId = $upload{'upload_id'};
 
-            $self->sayVerbose("Found upload record with status \"$fromStatus\" - sample id = $upload{'sample_id'} upload id = $upload{'upload_id'}.");
-            $self->sayVerbose("Changing status of upload record (id = $upload{'upload_id'}) from \"$fromStatus\" to \"$toStatus\".\n" );
+            unless ( $upload{'status'} ) {
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRunStage retrieved upload $uploadId without a status. Strange.";
+            }
+            my $fromStatus = $upload{'status'};
+
+            unless ( $upload{'sample_id'} ) {
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRunStage retrieved upload $uploadId without a sample_id. Strange.";
+            }
+            my $sampleId = $upload{'sample_id'};
+
+            $self->sayVerbose("Changing status of upload id = $uploadId;");
+            $self->sayVerbose("                   sample id = $sampleId;");
+            $self->sayVerbose("                   old status = '$fromStatus';");
+            $self->sayVerbose("                   new status = '$toStatus'.");
 
             my $updateSTH = $dbh->prepare( $updateSQL );
-            $updateSTH->execute( $toStatus, $upload{'upload_id'}, );
+            $updateSTH->execute( $toStatus, $uploadId, );
             if ($updateSTH->rows() != 1) {
-                $self->{'error'} = "status_update_$fromStatus" . "_to_" . $toStatus;
-                croak "Failed to update upload status.\n";
+                $self->{'error'} = "unstored_lookup_error";
+                croak "_changeUploadRunStage failed to update upload $uploadId.\n";
             }
             $updateSTH->finish();
 
@@ -2763,6 +2635,7 @@ sub _changeUploadRunStage {
 
             $self->{'_fastqUploadId'} = $upload{'upload_id'};
             $upload{'status'} = $toStatus; # Correct local copy to match db.
+
         }
     };
     if ($@) {
@@ -3493,9 +3366,9 @@ sub _pullXmlFromUrl {
     eval {
         $cgHubXml = get( $queryUrl );
     };
+    my $error = $@;
     # Shouldn't fail (always returns undefined); this is jus for saftey.
-    if ($@) {
-        my $error = $@;
+    if ($error) {
         $self->{'error'} = "external_analysis_lookup";
         croak( "Uncaught error looking up analysis xml via url \"$queryUrl\"; error was $error"
         );
