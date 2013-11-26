@@ -1,3 +1,5 @@
+#!/usr/bin/env perl
+
 use strict;
 use warnings;
 use DBI;
@@ -35,7 +37,7 @@ my $metadata_sth = $database->prepare(
         status = 'completed' and sample_id not in (select sample_id from upload)
      order by
         sample");
-        
+
 my $upload_sth = $database->prepare(
     "select 
         v.sample, v.flowcell, v.lane, v.barcode 
@@ -49,7 +51,7 @@ my $upload_sth = $database->prepare(
         sample");
 
 my $sth;
-        
+
 if ($mode eq "ready-for-metadata") {
 	$sth =  $metadata_sth;
 } elsif ($mode eq "ready-for-upload") {
@@ -62,10 +64,10 @@ if ($mode eq "ready-for-metadata") {
 $sth->execute();
 while(my @row = $sth->fetchrow_array) {
 	print ("$row[0]\t$row[1]\t$row[2]");
-	
+
 	if (defined($row[3])) {
 		print ("\t$row[3]");
 	}
-	
+
 	print ("\n");
 }
