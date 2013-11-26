@@ -11,11 +11,31 @@ use POSIX;
 
 #
 # CGHub xml generation script originally based upon analysis_hack.pl
-# This is currently only tested with V1 output.
 #
-# The following changes will be needed for V2 (at a minimum):
-#   Double check SEQ_LABEL in analysis.xml (chrM at least will change)
-#   Change Read group label 
+
+our $VERSION = 0.002000;
+# SRJ: Unversioned -> v0.002000. Changes include:
+#
+# Add retrieval from sample expriment_id, preservation, type.
+# Add interpretation of preservation to produce correct experiment xml.
+#     Add xml template text after </PROCESSING> element:
+#         <EXPERIMENT_ATTRIBUTES>
+#             <EXPERIMENT_ATTRIBUTE>
+#                 <TAG>SAMPLE_PRESERVATION</TAG>
+#                 <VALUE>[% experiment.preservation %]</VALUE>
+#             </EXPERIMENT_ATTRIBUTE>
+#         </EXPERIMENT_ATTRIBUTES>
+#       Translate prezervation attribute to required text "FFPE" (for /FFPE/i) or "FROZEN".
+# Add interpretation of preservation to produce correct experiment xml.
+#     Modify xml template LIBRARY_NAME
+#         from: <LIBRARY_NAME>Illumina TruSeq for [% experiment.sample_uuid %]</LIBRARY_NAME>
+#         to:   <LIBRARY_NAME>[% experiment.library_name %] for [% experiment.sample_uuid %]</LIBRARY_NAME>
+#     Translate library_name to required text: "Illumina TruSeq"
+#         or experiment.name for experiemnts named /TotalRNA/i.
+# Add parameter --v2-paired-end, to allow auto-selection of workflow-related parameters
+# Validate run mode parameters in context of v2_paired_end.
+# Set variables for workflow automatically if v2_paired_end is set.
+# Set variables correctly if v2_paired_end is set and workflow_accession was specified.
 
 my ( $template_dir,   # Filename for the template.
      $output_dir,     # Full path filename to write out to.
@@ -25,6 +45,7 @@ my ( $template_dir,   # Filename for the template.
      $v1_paired_transcriptome, # Is this v1 paired transcriptome?
      $no_prior_check,
      $v2_single_end,  # Is this v2 single end?
+     $v2_paired_end   # is this v2 paired end? (#added to allow auto-determination of bam file.)
 );
 
 # Required: database to read info from
@@ -34,49 +55,71 @@ my ( $username,         # Database user
      $seqware_meta_db,  # Database name with meta_db information
 );
 
-my ( $workflow_accession,  # Seqware accession id for this workflow (version specific)  
+my ( $workflow_accession,  # Seqware accession id for this workflow (version specific)
 );
 
 # Optional: Various controls.
 my ( $help,     # Flag to indicate help and quit
      $quiet,    # Print nothing, just do.
      $dummy_aliquot_id, # If specified, generate a "dummy" aliquot uuid
-     $skip_file_check, # If specified, skip check for file existence
+     $skip_file_check,  # If specified, skip check for file existence
 );
 
 my $argSize      = scalar( @ARGV );
 
 my $getOptResult = GetOptions(
-    'template-dir=s'        => \$template_dir,
-    'output-dir=s'          => \$output_dir,
-    'username=s' => \$username,
-    'password=s' => \$password,
-    'dbhost=s'   => \$dbhost,
-    'db=s'       => \$seqware_meta_db,
+    'template-dir=s' => \$template_dir,
+    'output-dir=s'   => \$output_dir,
+    'username=s'     => \$username,
+    'password=s'     => \$password,
+    'dbhost=s'       => \$dbhost,
+    'db=s'           => \$seqware_meta_db,
     'workflow_accession=s' => \$workflow_accession,
-    'help'     => \$help,
-    'dummy-aliquot-id'    => \$dummy_aliquot_id,
-    'skip-file-check' => \$skip_file_check,
-    'error-file=s' => \$error_file,
-    'samtools=s' => \$samtools_exec,    
-    'algo=s' => \$algo,
+    'help'           => \$help,
+    'dummy-aliquot-id'  => \$dummy_aliquot_id,
+    'skip-file-check'   => \$skip_file_check,
+    'error-file=s'      => \$error_file,
+    'samtools=s'        => \$samtools_exec,    
+    'algo=s'            => \$algo,
     'v1_paired_transcriptome' => \$v1_paired_transcriptome,
-    'no_prior_check' => \$no_prior_check,
-    'v2-single-end' => \$v2_single_end,
+    'no_prior_check'    => \$no_prior_check,
+    'v2-single-end'     => \$v2_single_end,
+    'v2-paired-end'     => \$v2_paired_end,
 );
 
-if ( !(defined($template_dir)) ||
-     !(defined($output_dir)) ||
-     !(defined($username)) ||
-     !(defined($password)) ||
-     !(defined($dbhost)) ||
-     !(defined($seqware_meta_db)) ||
-     !(defined($workflow_accession)) ||
-     !(defined($error_file)) ||
-     !(defined($samtools_exec)) ||
-     !(defined($algo)) ||
-     $help ) {
+if ($help) { usage(); }
+
+if (
+       ! defined $template_dir
+    || ! defined $output_dir
+    || ! defined $username
+    || ! defined $password
+    || ! defined $dbhost
+    || ! defined $seqware_meta_db
+    || ! defined $error_file
+    || ! defined $samtools_exec
+) {
     usage();
+}
+
+# New mode $v2_paired_end. If old mode, require former flags.
+if ( ! $v2_paired_end ) {
+    if ( ! defined $workflow_accession || ! defined $algo ) {
+        usage();
+    }
+}
+else {
+    if ($algo && $algo ne 'samtools-sort-genome') {
+        usage();
+    }
+    if (
+        $workflow_accession
+        && $workflow_accession != 1015700
+        && $workflow_accession != 1476030
+        && $workflow_accession != 1510913
+    ) {
+        usage();
+    }
 }
 
 # Make sure output dir is absolute
@@ -89,36 +132,54 @@ if (!($output_dir =~ m/^\//)) {
 my $dbn = "DBI:Pg:dbname=$seqware_meta_db;host=$dbhost";
 my $database=DBI->connect( $dbn, $username, $password, {RaiseError => 1} );
 
-# Get workflow info
-my $workflow_sth = $database->prepare(
-    "SELECT
-        name, version
-    FROM
-        workflow
-    WHERE
-        sw_accession = ?");
+my $workflow;
+my $workflow_version;
+my $isV2;
 
-$workflow_sth->execute($workflow_accession);
-my ($workflow, $workflow_version) = $workflow_sth->fetchrow_array;
-$workflow_sth->finish();
+if (! $v2_paired_end) {
+    # Get workflow info
+    my $workflow_sth = $database->prepare(
+        "SELECT
+            name, version
+        FROM
+            workflow
+        WHERE
+            sw_accession = ?");
 
-my $isV2 = 0;
+    $workflow_sth->execute($workflow_accession);
+    ($workflow, $workflow_version) = $workflow_sth->fetchrow_array;
+    $workflow_sth->finish();
 
-if ($v1_paired_transcriptome) {
-	$template_dir = "$template_dir/v1_paired_transcriptome";
-} elsif ($v2_single_end) {
-    $template_dir = "$template_dir/v2_single_end";
-} elsif ($workflow eq "MapspliceRSEM") {
-    $isV2 = 1;
-    $template_dir = "$template_dir/v2";
-} else {
-    $template_dir = "$template_dir/v1";
+    $isV2 = 0;
+
+    if ($v1_paired_transcriptome) {
+    	$template_dir = "$template_dir/v1_paired_transcriptome";
+    } elsif ($v2_single_end) {
+        $template_dir = "$template_dir/v2_single_end";
+    } elsif ($workflow eq "MapspliceRSEM") {
+        $isV2 = 1;
+        $template_dir = "$template_dir/v2";
+    } else {
+        $template_dir = "$template_dir/v1";
+    }
 }
+else {
+    # This is new mode $v2_paired_end
+    # will handle $workflow, $workflow_version, $workflow_accession separately,
+    # assumes is one of
+    # MapspliceRSEM           | 0.7.4   |      1015700
+    # MapspliceRSEM           | 0.7.5   |      1476030
+    # MapspliceRSEM_no_fusion | 0.7.6   |      1510913
+    $isV2         = 1;
+    $template_dir = "$template_dir/v2";
+    $algo         = 'samtools-sort-genome';
+}
+
 
 # Get sample / lane info
 my $sth1 = $database->prepare(
     "SELECT
-        s.sample_id, l.sw_accession, s.tcga_uuid
+        s.sample_id, l.sw_accession, s.tcga_uuid, s.experiment_id, s.type
     FROM
         sample AS s, lane AS l, sequencer_run AS sr
     WHERE
@@ -130,6 +191,7 @@ my $sth1 = $database->prepare(
         AND (l.barcode = ? or l.barcode is null)"
 );
 
+
 # Check for prior upload
 my $upload_sth = $database->prepare("SELECT count(*) from upload where sample_id = ? and target = 'CGHUB'");
 
@@ -140,12 +202,12 @@ my $sth2 = $database->prepare(
      FROM
         vw_files
      WHERE 
-        algorithm = '$algo' 
+        algorithm = ?
         AND meta_type = 'application/bam'
         AND flowcell = ?
         AND (lane_index + 1) = ?
         AND (barcode = ? or barcode is null) 
-        AND workflow_accession = $workflow_accession
+        AND workflow_accession = ?
      ORDER BY tstmp ");
 
 # Globally unique id.
@@ -175,7 +237,7 @@ my $tstmp = strftime("%Y_%m_%d_%H_%M_%S", localtime);
 
 my @invalid_samples;
 
-# Loop over STDIN input                  
+# Loop over STDIN input
 while(<STDIN>) {
   chomp;
   next if (/^#/);
@@ -193,7 +255,7 @@ while(<STDIN>) {
 
   # Get sample information
   $sth1->execute($flowcell, $lane_index, $sample, $barcode);
-  my ($sample_id, $lane_accession, $sample_uuid) = $sth1->fetchrow_array;
+  my ($sample_id, $lane_accession, $sample_uuid, $experiment_id, $type) = $sth1->fetchrow_array;
 
   if (!defined($sample_id) || "" eq $sample_id) {
     print "Unable to locate sample in db: $sample_descriptor\n";
@@ -207,6 +269,49 @@ while(<STDIN>) {
     exit(1);
   }
   $sth1->finish();
+
+  # New mode auto-determination of workflow
+  if ($v2_paired_end) {
+      # If $workflow accession was actually set, use that.
+      if ($workflow_accession) {
+          if ($workflow_accession == 1510913) {
+              $workflow = 'MapspliceRSEM_no_fusion';
+              $workflow_version = '0.7.6';
+          }
+          elsif ($workflow_accession == 1476030) {
+              $workflow = 'MapspliceRSEM';
+              $workflow_version = '0.7.5';
+          }
+          elsif ($workflow_accession == 1015700) {
+              $workflow = 'MapspliceRSEM';
+              $workflow_version = '0.7.4';
+          }
+          # Only these are allowed if $v2_paired_end is true.
+      }
+      # If not set, determine workflow from experiment_id and type - Hackity hack...
+      elsif (
+             $experiment_id == 79
+          || $experiment_id == 80
+          || $experiment_id == 85
+          || $experiment_id == 91
+          || $experiment_id == 92
+          || $experiment_id == 93
+      ) {
+          $workflow = 'MapspliceRSEM_no_fusion';
+          $workflow_version = '0.7.6';
+          $workflow_accession = 1510913;
+      }
+      elsif ($type =~ /HNSC/i) {
+          $workflow = 'MapspliceRSEM';
+          $workflow_version = '0.7.5';
+          $workflow_accession = 1476030;
+      }
+      else {
+          $workflow = 'MapspliceRSEM';
+          $workflow_version = '0.7.4';
+          $workflow_accession = 1015700;
+      }
+  }
 
   if (!$no_prior_check) {
 	  $upload_sth->execute($sample_id);
@@ -241,7 +346,7 @@ while(<STDIN>) {
   # Now find the BAM file and get its xml data
 
   # algo: 'ConvertBAMTranscript2Genome' or 'samtools-sort-genome'
-  $sth2->execute($flowcell, $lane, $barcode);
+  $sth2->execute($algo, $flowcell, $lane, $barcode, $workflow_accession);
 
   my ($path, $swid, $date, $md5sum, $fileId) = $sth2->fetchrow_array;
 
@@ -330,7 +435,10 @@ while(<STDIN>) {
     workflow => $workflow,
     workflow_version => $workflow_version,
     workflow_algorithm => $algo,
-    checksum => $md5sum, });
+    checksum => $md5sum,
+    type => $type,
+    experiment_id => $experiment_id,
+  });
 
   buildAnalysisXml($sample_dir, @analysis_set);
 
@@ -413,6 +521,8 @@ sub buildExperimentXml {
             e.sw_accession as experiment_accession,
             s.sw_accession as sample_accession,
             p.instrument_model
+            s.preservation
+            e.name
          FROM
             experiment e, sample s, platform p
          WHERE
@@ -422,7 +532,7 @@ sub buildExperimentXml {
 
     $exp_sth->execute($sampleId);
 
-    my ($experiment_id, $description, $experiment_accession, $sample_accession, $instrument_model) = $exp_sth->fetchrow_array;
+    my ($experiment_id, $description, $experiment_accession, $sample_accession, $instrument_model, $preservation, $name) = $exp_sth->fetchrow_array;
 
     # Identify library layout (paired or single)
     my $num_reads_sth = $database->prepare("
@@ -466,14 +576,30 @@ sub buildExperimentXml {
 
     my $experiment_ref = "UNCID:$experiment_accession-$sample_accession"; 
 
+    # Convert $preservation to required text: FFPE or FROZEN.
+    # Default is FROZEN
+    # Considered "FFPE"" if *contains* the string "FFPE", case insensitively.
+    if (! defined $preservation || $preservation !~ /FFPE/i) {
+        $preservation = "FROZEN";
+    }
+    else {
+        $preservation = "FFPE";
+    }
+
+    if (! defined $name || $name !~ /TotalRNA/i) {
+        $name = "Illumina TruSeq";
+    }
+
     # Add hash with all data onto the array
     push( @experiment_set, {
-        description => $description,
-        experiment_ref => $experiment_ref,
-        sample_uuid => $sample_uuid,
-        library_layout => $library_layout,
+        description      => $description,
+        experiment_ref   => $experiment_ref,
+        sample_uuid      => $sample_uuid,
+        library_layout   => $library_layout,
         instrument_model => $instrument_model,
         read2_base_coord => $read_len+1,
+        preservation     => $preservation,
+        name             => $name,
     });
 
     my $exp_data = { experiment_set => \@experiment_set };
