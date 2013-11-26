@@ -1,3 +1,5 @@
+#!/usr/bin/env perl
+
 use strict;
 use warnings;
 use DBI;
@@ -178,34 +180,34 @@ while(<STDIN>) {
   chomp;
   next if (/^#/);
   my ($sample, $flowcell, $lane, $barcode) = split( /\s+/ );
-  
+
   if (!(defined($barcode))) {
     $barcode = "";
   }
-  
+
   my $sample_descriptor = "$sample\t$flowcell\t$lane\t$barcode";
-  
+
   print "\nProcessing: $sample_descriptor\n";
-  
+
   my $lane_index = $lane - 1;
-  
+
   # Get sample information
   $sth1->execute($flowcell, $lane_index, $sample, $barcode);
   my ($sample_id, $lane_accession, $sample_uuid) = $sth1->fetchrow_array;
-  
+
   if (!defined($sample_id) || "" eq $sample_id) {
     print "Unable to locate sample in db: $sample_descriptor\n";
     push(@invalid_samples, $sample_descriptor);
     $sth1->finish();
     next;
   }
-  
+
   if ($sth1->fetchrow_array) {
     print "ERROR!  Multiple samples returned for: $sample_descriptor\n";
     exit(1);
   }
   $sth1->finish();
-    
+
   if (!$no_prior_check) {
 	  $upload_sth->execute($sample_id);
 	  my ($upload_count) = $upload_sth->fetchrow_array;
@@ -217,7 +219,7 @@ while(<STDIN>) {
 	  #  next;
 	  #}
   }
-  
+
   if ($dummy_aliquot_id) {
     $sample_uuid = getUuid();
   } else {
@@ -227,90 +229,90 @@ while(<STDIN>) {
         next;
     }
   }
-  
+
   my $analysis_id = getUuid();
-    
+
   my $sample_dir = "$output_dir/$analysis_id";
-    
+
   mkpath($sample_dir, { mode => 0775 }) or die "$! Unable to create $sample_dir";
-  
+
   print "Sample ID: $sample_id\n";
-  
+
   # Now find the BAM file and get its xml data
-  
+
   # algo: 'ConvertBAMTranscript2Genome' or 'samtools-sort-genome'
   $sth2->execute($flowcell, $lane, $barcode);
-  
+
   my ($path, $swid, $date, $md5sum, $fileId) = $sth2->fetchrow_array;
-  
+
   if (!defined($path)) {
     print "No file in db for $sample_descriptor\n";
     push(@invalid_samples, $sample_descriptor);
     $sth2->finish();
     next;
   }
-  
+
   if ($sth2->fetchrow_array) {
     print "ERROR!  Multiple files returned for: $sample_descriptor\n";
 #    exit(1);
     next;
   }
-  
+
   $sth2->finish();
-  
+
   if (!($skip_file_check) && (!(-e $path))) {
     print "File does not exist for $sample_descriptor.  [$path]\n";
     push(@invalid_samples, $sample_descriptor);
     next;
   }
-  
+
   $path =~ /([^\/]+)$/;
   my $file = $1;
   my $file_base = $1;
   $file_base =~ /(.*)\.[^.]+$/;
   $file_base = $1;
-      
+
   # Convert date time to xs:dataTime, needs T separating date and time, not space.
   $date =~ s/ /T/;
-  
+
   # Get unique key number
   $sth3->execute();
   my ( $upload_accession ) = $sth3->fetchrow_array;
   $sth3->finish();
-  
+
   my $tcga_file_name = "UNCID_$swid.$sample_uuid.$file";
-  
+
   my $sample_link = "$sample_dir/$tcga_file_name";
-  
+
   system("ln -s $path $sample_link");
-  
+
   # Get read group from bam file (assumes 1 read group defined)
   my $read_group = "UNDEFINED";
-  
+
   my $read_len = 0;
-  
+
   if (!$skip_file_check) {
       $read_group = `$samtools_exec view -H $sample_link | grep \@RG | cut -f 2 | cut -d : -f 2` or die $!;
       chomp($read_group);
-      
+
       # If a newline is in the output, we may have multiple read groups
       my $containsNewline = $read_group =~ m/\n/;
-      
+
       if (($containsNewline) || ($read_group eq "")) {
         print "Invalid read group for: $sample_descriptor\n";
         push(@invalid_samples, $sample_descriptor);
         next;
       }
-      
+
       $read_len = getReadLength($samtools_exec, $sample_link);
-      
+
       if ($read_len < 1) {
         print "Invalid read length for: $sample_descriptor\n";
         push(@invalid_samples, $sample_descriptor);
-        next;       
+        next;
       }
   }
-    
+
   # Add hash with all data onto the array
   my @analysis_set;
   push( @analysis_set, {
@@ -329,20 +331,20 @@ while(<STDIN>) {
     workflow_version => $workflow_version,
     workflow_algorithm => $algo,
     checksum => $md5sum, });
-    
+
   buildAnalysisXml($sample_dir, @analysis_set);
-    
+
   my $experiment_ref = buildExperimentXml($sample_id, $sample_uuid, $sample_dir, $isV2, $sample_descriptor, $read_len);
-    
+
   buildRunXml($experiment_ref, $lane_accession, $sample_dir);
-  
+
   if (!($skip_file_check) && (!($dummy_aliquot_id))) {
     updateUploadInfo($sample_id, $analysis_id, $fileId);
   }
-  
+
   # Grant read/write access to sample dir for group.
   system ("chmod -R 0770 $sample_dir");
-    
+
 } # End loop over input file
 
 # Grant read/write access to output dir
@@ -365,34 +367,34 @@ sub getUuid {
 
 sub buildAnalysisXml {
     my ($sample_dir, @analysis_set) = @_;
-    
+
     my $data = { analysis_set => \@analysis_set };
 
 #       print( Dumper( $data ));
-    
+
     my $templater = Template->new({
         ABSOLUTE => 1,
     });
-    
+
     $templater->process( "$template_dir/analysis.xml", $data, "$sample_dir/analysis.xml" )
         || die $templater->error(), "\n";
 }
 
 sub buildRunXml {
     my ($experiment_ref, $lane_accession, $sample_dir) = @_;
-    
+
     my @run_set;
-    
+
     my $run_templater = Template->new({
         ABSOLUTE => 1,
     });
-    
+
     # Add hash with all data onto the array (one element for each input file)
     push( @run_set, {
         lane_accession => $lane_accession,
         experiment_ref => $experiment_ref,
     });
-    
+
     my $run_data = { run_set => \@run_set };
 
     # Merge the template and the data
@@ -417,11 +419,11 @@ sub buildExperimentXml {
             s.sample_id = ? and
             e.experiment_id = s.experiment_id and
             e.platform_id = p.platform_id");
-            
+
     $exp_sth->execute($sampleId);
-    
+
     my ($experiment_id, $description, $experiment_accession, $sample_accession, $instrument_model) = $exp_sth->fetchrow_array;
-    
+
     # Identify library layout (paired or single)
     my $num_reads_sth = $database->prepare("
         select
@@ -433,13 +435,13 @@ sub buildExperimentXml {
             experiment.experiment_spot_design_id = design.experiment_spot_design_id and
             spec.experiment_spot_design_id = design.experiment_spot_design_id and
             read_class = 'Application Read' and read_type != 'BarCode'");
-    
+
     $num_reads_sth->execute($experiment_id);
-    
+
     my $library_layout;
     my ($num_reads) = $num_reads_sth->fetchrow_array;
-    
-    if ($num_reads == 1) {      
+
+    if ($num_reads == 1) {
         if ($isV2) {
             print "\n\nERROR!  Invalid attempt to generate single end metadata for V2 pipeline: $sample_descriptor.\n";
             exit(1);
@@ -457,13 +459,13 @@ sub buildExperimentXml {
     }
 
     my @experiment_set;
-    
+
     my $exp_templater = Template->new({
         ABSOLUTE => 1,
     });
-    
+
     my $experiment_ref = "UNCID:$experiment_accession-$sample_accession"; 
-    
+
     # Add hash with all data onto the array
     push( @experiment_set, {
         description => $description,
@@ -473,20 +475,20 @@ sub buildExperimentXml {
         instrument_model => $instrument_model,
         read2_base_coord => $read_len+1,
     });
-    
+
     my $exp_data = { experiment_set => \@experiment_set };
 
     # Merge the template and the data
     $exp_templater->process( "$template_dir/experiment.xml", $exp_data, "$sample_dir/experiment.xml" )
         || die $exp_templater->error(), "\n";
-        
+
     return $experiment_ref;
 }
 
 # Write error samples to a file
 sub recordErrorSamples {
     print "\nWriting error samples to: $error_file\n";
-    
+
     open ERRORS, ">>$error_file" or die "can't open '$error_file': $!";
     foreach (@invalid_samples) {
         print ERRORS $_ . "\n";
@@ -497,14 +499,14 @@ sub recordErrorSamples {
 # Insert tracking information into upload and upload_file tables.
 sub updateUploadInfo {
     my ($sampleId, $analysis_uuid, $fileId) = @_;
-    
+
     $upload_seq_sth->execute();
     my ($uploadId) = $upload_seq_sth->fetchrow_array;
     $upload_seq_sth->finish();
-    
+
     $upload_insert_sth->execute($uploadId, $sampleId, $analysis_uuid);
     $upload_insert_sth->finish();
-    
+
     $upload_file_insert_sth->execute($uploadId, $fileId);
     $upload_file_insert_sth->finish();
 }
@@ -512,11 +514,11 @@ sub updateUploadInfo {
 # Examine first 1000 lines of BAM file looking for max read length.
 sub getReadLength {
     my ($samtools_exec, $sample_link) = @_;
-    
+
     my $read_str = `$samtools_exec view $sample_link | head -1000 | cut -f 10` or die $!;
-    
+
     my @reads = split (/\n/, $read_str);
-    
+
     my $max_length = 0;
     foreach my $read (@reads) {
         my $length = length($read);
@@ -524,8 +526,8 @@ sub getReadLength {
             $max_length = $length;
         }
     }
-    
+
     print "Calculated read length of: $max_length\n";
-    
+
     return $max_length;
 }
