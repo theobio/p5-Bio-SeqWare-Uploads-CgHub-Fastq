@@ -71,3 +71,4 @@ while(my @row = $sth->fetchrow_array) {
 
 	print ("\n");
 }
+$sth->finish();
