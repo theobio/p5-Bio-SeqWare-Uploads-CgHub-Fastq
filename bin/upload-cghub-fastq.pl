@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.026
+Version 0.000.027
 
 =cut
 
@@ -419,7 +419,7 @@ sub _processCommandLine {
         'rerunWait'        => 168,
     };
 
-    # Combine local defaults with ()over-ride by) config file options
+    # Combine local defaults with (over-ride by) config file options
     my %opt = ( %$optionsHR, %$configOptionsHR );
 
     # Record command line arguments

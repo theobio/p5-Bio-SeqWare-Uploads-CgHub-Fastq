@@ -1,5 +1,8 @@
 package Test::Utils;
 
+use strict;
+use warnings;
+
 use Test::Builder;
 use Sub::Exporter -setup => { exports => [
      'error_tag_ok',

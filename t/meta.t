@@ -224,12 +224,13 @@ sub test__getTemplateData {
     my $sampleAccession    = 2090625;
     my $experimentId = -5;
     my $sampleId = -19;
-    
+
     # Additional for experiment.xml
     my $instrumentModel = 'Illumina HiSeq 2000';
     my $experimentDescription = 'TCGA RNA-Seq Paired-End Experiment';
     my $readEnds       = 2;
-    my $baseCoord     = 16;
+    my $baseCoord      = 16;
+    my $preservation   = '';
 
     my $uploadDir = File::Spec->catdir( "$TEMP_DIR", $uploadUuid );
     mkdir($uploadDir);
@@ -251,6 +252,8 @@ sub test__getTemplateData {
         'read_ends'          => $readEnds,
         'library_layout'     => 'PAIRED',
         'base_coord'         => $baseCoord,
+        'library_prep'       => 'Illumina TruSeq',
+        'preservation'       => 'FROZEN',
     };
 
     my @dbSession = ({
@@ -262,13 +265,13 @@ sub test__getTemplateData {
                 'file_accession',       'file_md5sum',       'file_path',
                 'fastq_upload_basedir', 'fastq_upload_uuid', 'experiment_accession',
                 'sample_accession',     'experiment_description', 'experiment_id',
-                'instrument_model',     'sample_id'
+                'instrument_model',     'sample_id', 'preservation',
             ], [
                 $fileTimestamp,   $sampleTcgaUuid,     $laneAccession,
                 $fileAccession,   $fileMd5sum,         $filePath,
                 "$TEMP_DIR",      $uploadUuid,         $experimentAccession,
                 $sampleAccession, $experimentDescription, $experimentId,
-                $instrumentModel, $sampleId,
+                $instrumentModel, $sampleId, $preservation,
             ]
         ]
     }, {
@@ -410,6 +413,8 @@ sub test__makeFileFromTemplate {
         'read_ends'          => 2,
         'base_coord'         => 16,
         'library_layout'     => 'PAIRED',
+        'library_prep'       => 'Illumina TruSeq',
+        'preservation'       => 'FFPE',
     };
 
     # Tests for analysis.xml

@@ -1,15 +1,6 @@
 ## TODO planning for p5-Bio-SeqWare-Db-Connection.
 
-This is release v0.000.0026:
-
-2013-11-01 v0.000.0026 [ADD] - Automating LIVE requires wait period.
-2012-09-18 v0.000.021  [DEV] - Refactor updates and changes to upload record.
-    Rule of 3 smell: functions with same task, different parameters.
-
-Have implemented LIVE waiting by using --recheckWaitning option (in hours).
-
-Refactored update code updates of upload records, merging rerun and normal
-run. parameterized to allow optional selection based on age in hours.
+This is release v0.000.0027:
 
 # ROADMAP
 
@@ -25,7 +16,7 @@ release, or will NOT be done, Date and version indicate when they were moved
 from "In consideration".
 
 2013-08-21 v0.000.001 [DOC] - Simplify module documentation
-2013-08-21 v0.000.001 [ADD] - Consider what to log by default, with verbose,
+2013-08-21 v0.000.001 [ADD] - Change what is logged by default, with verbose,
                               and test.
 2012-08-29 v0.000.007 [ADD] - Add cghub submit parameters as script options.
     Parameterize all settings different from bam uploads for future merge.

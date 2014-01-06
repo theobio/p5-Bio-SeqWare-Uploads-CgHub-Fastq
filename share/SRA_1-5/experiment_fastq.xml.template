@@ -8,7 +8,7 @@
         <DESIGN_DESCRIPTION>[% experiment_description %]</DESIGN_DESCRIPTION>
         <SAMPLE_DESCRIPTOR refcenter="TCGA" refname="[% sample_tcga_uuid %]"/>
         <LIBRARY_DESCRIPTOR>
-            <LIBRARY_NAME>Illumina TruSeq for [% sample_tcga_uuid %]</LIBRARY_NAME>
+            <LIBRARY_NAME>[% library_prep %] for [% sample_tcga_uuid %]</LIBRARY_NAME>
             <LIBRARY_STRATEGY>RNA-Seq</LIBRARY_STRATEGY>
             <LIBRARY_SOURCE>GENOMIC</LIBRARY_SOURCE>
             <LIBRARY_SELECTION>RANDOM</LIBRARY_SELECTION>
@@ -63,5 +63,11 @@
         </PIPELINE>
         <DIRECTIVES></DIRECTIVES>
     </PROCESSING>
+    <EXPERIMENT_ATTRIBUTES>
+        <EXPERIMENT_ATTRIBUTE>
+            <TAG>SAMPLE_PRESERVATION</TAG>
+            <VALUE>[% preservation %]</VALUE>
+        </EXPERIMENT_ATTRIBUTE>
+    </EXPERIMENT_ATTRIBUTES>
 </EXPERIMENT>
 </EXPERIMENT_SET>

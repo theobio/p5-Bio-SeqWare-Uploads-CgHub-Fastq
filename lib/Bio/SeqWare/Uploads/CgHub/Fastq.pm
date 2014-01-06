@@ -35,11 +35,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.026
+Version 0.000.027
 
 =cut
 
-our $VERSION = '0.000026';
+our $VERSION = '0.000027';
 
 =head1 SYNOPSIS
 
@@ -465,11 +465,14 @@ sub doZip {
 
     eval {
         $self->_tagLaneToUpload($dbh, "zip_running" );
-        $self->_getFilesToZip( $dbh );
-        $self->_zip();
-        $self->_insertFile( $dbh );
-        $self->_insertUploadFileRecord( $dbh );
-        $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, "zip_completed");
+        # Set if finds a lane, not if doesn't.
+        if ($self->{'_laneId'})  {
+             $self->_getFilesToZip( $dbh );
+             $self->_zip();
+             $self->_insertFile( $dbh );
+             $self->_insertUploadFileRecord( $dbh );
+             $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, "zip_completed");
+        }
     };
     if ($@) {
         my $error = $@;
@@ -1429,7 +1432,7 @@ looking for. If you use these function I<you are doing something wrong.>
 
 =head2 _tagLaneToUpload()
 
-    $self->_tagLaneToUpload( $dbh );
+    $self->_tagLaneToUpload( $dbh, $newUploadStatus );
 
 =cut
 
@@ -1454,8 +1457,11 @@ sub _tagLaneToUpload {
         $dbh->begin_work();
         $dbh->do("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
         $self->_findNewLaneToZip( $dbh );
-        $self->_createUploadWorkspace();
-        $self->_insertZipUploadRecord( $dbh, $newUploadStatus);
+         # Found new lane
+        if ($self->{'_laneId'})  {
+            $self->_createUploadWorkspace();
+            $self->_insertZipUploadRecord( $dbh, $newUploadStatus);
+        }
         $dbh->commit()
     };
     if ($@) {
@@ -1610,6 +1616,7 @@ sub _findNewLaneToZip {
 
     if (! defined $rowHR) {
         $self->sayVerbose("No lanes to zip.");
+        $self->{'_laneId'} = undef; # Ensure no lane found if no zip found (flag).
         return 1;  # NORMAL RETURN - Can't find candidate lanes for zipping.
     }
 
@@ -2697,6 +2704,7 @@ sub _getTemplateData {
                e.experiment_id,
                p.instrument_model,
                u.sample_id
+               s.preservation
         FROM upload u, upload_file uf, vw_files vf, lane l, experiment e, sample s, platform p
         WHERE u.upload_id = ?
           AND u.upload_id = uf.upload_id
@@ -2732,7 +2740,8 @@ sub _getTemplateData {
             'experiment_accession' => $rowHR->{'experiment_accession'},
             'sample_accession'     => $rowHR->{'sample_accession'},
             'experiment_description' => $rowHR->{'experiment_description'},
-            'instrument_model' => $rowHR->{'instrument_model'},
+            'instrument_model'     => $rowHR->{'instrument_model'},
+            'preservation'         => 'FROZEN',
             'read_ends'        => 
                 $self->_getTemplateDataReadEnds(
                     $dbh, $rowHR->{'experiment_id'} ),
@@ -2746,6 +2755,10 @@ sub _getTemplateData {
                 Bio::SeqWare::Uploads::CgHub::Fastq->reformatTimeStamp(
                     $rowHR->{'file_timestamp'} ),
         };
+
+        if ($rowHR->{'preservation'} && $rowHR->{'preservation'} eq 'FFPE') {
+            $data->{'preservation'} = 'FFPE';
+        }
         if ($data->{'read_ends'} == 1) {
             $data->{'library_layout'} = 'SINGLE';
         }
@@ -2756,7 +2769,8 @@ sub _getTemplateData {
             $self->{'error'} = 'bad_read_ends';
             croak("XML only defined for read_ends 1 or 2, not $data->{'read_ends'}\n");
         }
- 
+        $data->{'library_prep'} = 'Illumina TruSeq';
+
         if ($self->{'verbose'}) {
             my $message = "Template Data:\n";
             for my $key (sort keys %$data) {
@@ -3538,9 +3552,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.026
+   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.027
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.026.tar.gz
+   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.027.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

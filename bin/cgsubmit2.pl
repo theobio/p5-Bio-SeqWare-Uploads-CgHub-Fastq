@@ -1,9 +1,12 @@
-#!/usr/bin/perl  
+#!/usr/bin/env perl
 
-#use warnings;
+use warnings;
 use strict;
 use DBI;
 use Getopt::Long;
+
+our $VERSION = 0.001000;
+# SRJ: Unversioned -> v0.001000
 
 my ($username, $password, $dbhost, $seqware_meta_db);
 

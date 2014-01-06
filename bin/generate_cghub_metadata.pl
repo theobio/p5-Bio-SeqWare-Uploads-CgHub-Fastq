@@ -9,6 +9,60 @@ use Data::Dumper;
 use File::Path;
 use POSIX;
 
+=head1 NAME
+
+generate_cghub_metadeata.pl - create dirs of metadata for piped sample list.
+
+=cut
+
+=head1 VERSION
+
+Version 0.000.002
+
+=cut
+
+=head1 SYNOPSIS
+
+  UPLOAD_DIR=/datastore/tcga/cghub
+  SOFT_DIR=/datastore/tier1data/nextgenseq/seqware-analysis/software
+
+  perl $UPLOAD_DIR/scripts/get_samples.000_002.pl /
+      --username seqware /
+      --password *** /
+      --db seqware_meta_db /
+      --dbhost swprod.bioinf.unc.edu /
+      --mode ready-for-metadata /
+  | perl $UPLOAD_DIR/scripts/generate_cghub_metadata.pl
+      --username seqware /
+      --password *** /
+      --dbhost swprod.bioinf.unc.edu /
+      --db seqware_meta_db /
+      --template-dir $UPLOAD_DIR/templates /
+      --output-dir $UPLOAD_DIR/v2_uploads /
+      --samtools $SOFT_DIR/samtools/samtools /
+      --error-file $UPLOAD_DIR/v2_uploads/test_errors.txt /
+      --v2-paired-end
+
+  OPTIONS:
+
+      TODO...
+
+=cut
+
+=head1 DESCRIPTION
+
+Generates a directory of xml files (run.xml, experiment.xml, and analysis.xml)
+for upload to cghub. All creates a link in this directory to the (bam) file
+the uploading of which is the reason for the metadata.
+
+To run, needs to be fed a sample list as stdin, usually by piping the output
+of the get_samples.pl program, run in --mode ready_for_metadata. Could also
+be fed the output of cat applied to a normal sample file (sample, flowcell,
+lane, barcode).
+
+The directory is created as a UUID in the file specified 
+=cut
+
 #
 # CGHub xml generation script originally based upon analysis_hack.pl
 #
@@ -164,9 +218,9 @@ if (! $v2_paired_end) {
     }
 }
 else {
-    # This is new mode $v2_paired_end
-    # will handle $workflow, $workflow_version, $workflow_accession separately,
-    # assumes is one of
+    # This is new mode $v2_paired_end.
+    # Will handle $workflow, $workflow_version, $workflow_accession separately,
+    # Assumes is one of
     # MapspliceRSEM           | 0.7.4   |      1015700
     # MapspliceRSEM           | 0.7.5   |      1476030
     # MapspliceRSEM_no_fusion | 0.7.6   |      1510913
@@ -270,9 +324,9 @@ while(<STDIN>) {
   }
   $sth1->finish();
 
-  # New mode auto-determination of workflow
+  # New mode: auto-determination of workflow
   if ($v2_paired_end) {
-      # If $workflow accession was actually set, use that.
+      # If $workflow_accession was actually set, use that.
       if ($workflow_accession) {
           if ($workflow_accession == 1510913) {
               $workflow = 'MapspliceRSEM_no_fusion';
@@ -286,9 +340,14 @@ while(<STDIN>) {
               $workflow = 'MapspliceRSEM';
               $workflow_version = '0.7.4';
           }
-          # Only these are allowed if $v2_paired_end is true.
+          else {
+              # Only these are allowed if $v2_paired_end is true.
+              print "ERROR! Shouldn't be possible - unknown wf_accession: $workflow_accession\n";
+              exit(1);
+          }
       }
-      # If not set, determine workflow from experiment_id and type - Hackity hack...
+      # If wf_accession not set, determine workflow from experiment_id and type
+      # ... hackity hack...
       elsif (
              $experiment_id == 79
           || $experiment_id == 80
@@ -463,7 +522,7 @@ recordErrorSamples();
 $database->disconnect();
 
 sub usage {
-  print "usage: cat [LIST OF SAMPLE TITLES] | $0 [--username USERNAME] [--password PASSWORD] [--dbhost DBHOST] [--db SEQWARE_META_DB] [--template-dir <path_to_template_dir>] [--output-dir <path_to_output_dir>] [--workflow_accession <workflow accession>] [--error-file <path to error sample file output>] [--samtools <path to samtools>] [--algo <file algorithm>] [--dummy-aliquot-id] [--skip-file-check]\n";
+  print "usage: cat [LIST OF SAMPLE TITLES] | $0 [--username USERNAME] [--password PASSWORD] [--dbhost DBHOST] [--db SEQWARE_META_DB] [--template-dir <path_to_template_dir>] [--output-dir <path_to_output_dir>] [--error-file <path to error sample file output>] [--samtools <path to samtools>] [--dummy-aliquot-id] [--skip-file-check]\n";
   exit 0;
 }
 
@@ -520,8 +579,8 @@ sub buildExperimentXml {
             e.description,
             e.sw_accession as experiment_accession,
             s.sw_accession as sample_accession,
-            p.instrument_model
-            s.preservation
+            p.instrument_model,
+            s.preservation,
             e.name
          FROM
             experiment e, sample s, platform p
@@ -568,8 +627,6 @@ sub buildExperimentXml {
         exit;
     }
 
-    my @experiment_set;
-
     my $exp_templater = Template->new({
         ABSOLUTE => 1,
     });
@@ -586,23 +643,40 @@ sub buildExperimentXml {
         $preservation = "FFPE";
     }
 
-    if (! defined $name || $name !~ /TotalRNA/i) {
-        $name = "Illumina TruSeq";
+    my $library_prep = $name;
+    if (! defined $library_prep || $library_prep !~ /TotalRNA/i) {
+        $library_prep = "Illumina TruSeq";
     }
 
     # Add hash with all data onto the array
-    push( @experiment_set, {
+    my $dataHR = {
         description      => $description,
+        experiment_description      => $description,
         experiment_ref   => $experiment_ref,
+        experiment_accession => $experiment_accession,
+        sample_accession => $sample_accession,
+        sample_tcga_uuid => $sample_uuid,
         sample_uuid      => $sample_uuid,
         library_layout   => $library_layout,
+        library_prep     => $library_prep,
         instrument_model => $instrument_model,
-        read2_base_coord => $read_len+1,
+        read2_base_coord => $read_len + 1,
+        base_coord       => $read_len + 1,
         preservation     => $preservation,
-        name             => $name,
-    });
+        read_ends        => $num_reads,
 
-    my $exp_data = { experiment_set => \@experiment_set };
+    };
+
+    # Modify to use one-at-a-time template.
+    my $exp_data;
+    if ($v2_paired_end) {
+        $exp_data = $dataHR
+    }
+    else {
+        my @experiment_set;
+        push( @experiment_set, $dataHR );
+        $exp_data = { experiment_set => \@experiment_set };
+    }
 
     # Merge the template and the data
     $exp_templater->process( "$template_dir/experiment.xml", $exp_data, "$sample_dir/experiment.xml" )
