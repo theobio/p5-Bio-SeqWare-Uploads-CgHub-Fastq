@@ -2703,7 +2703,7 @@ sub _getTemplateData {
                e.description        as experiment_description,
                e.experiment_id,
                p.instrument_model,
-               u.sample_id
+               u.sample_id,
                s.preservation
         FROM upload u, upload_file uf, vw_files vf, lane l, experiment e, sample s, platform p
         WHERE u.upload_id = ?
@@ -2800,9 +2800,10 @@ sub _getTemplateData {
     if ($@) {
         my $error = $@;
         if (! $self->{'error'}) {
+            warn $error;
             $self->{'error'} = 'collecting_template_data';
         }
-        croak ("Failed collecting data for template use: $@");
+        croak ("Failed collecting data for template use: $error");
     }
 
     return $data;
