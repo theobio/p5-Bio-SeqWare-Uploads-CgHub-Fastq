@@ -4,7 +4,7 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 # VERSION
 
-Version 0.000.027
+Version 0.000.028
 
 # SYNOPSIS
 
@@ -118,129 +118,6 @@ This method calls itself to allow nested processing, and allows passing a
 database handle as a parameter to support that. If not provided, a connection
 will be created. Due to the length of some of the processing, the passed
 connection may be invalid an fail.
-=cut
-
-sub run {
-    my $self = shift;
-    my $runMode = shift;
-    my $dbh = shift;
-
-    # Validate runMode parameter
-    if (! defined $runMode) {
-        $runMode = $self->{'runMode'};
-    }
-    if (! defined $runMode || ref $runMode ) {
-        $self->{'error'} = "failed_run_param_mode";
-        croak "Can't run unless specify a runMode.";
-    }
-    $runMode = uc $runMode;
-
-    # Database connection = from param, or else from self, or else get new one.
-    if (! defined $dbh) {
-        $dbh = $self->{'dbh'};
-    }
-    if (! defined $dbh ) {
-        eval {
-            my $connectionBuilder = Bio::SeqWare::Db::Connection->new( $self );
-            if (! defined $connectionBuilder) {
-                $self->{'error'} = "failed_run_constructing_connection";
-                croak "Failed to create Bio::SeqWare::Db::Connection.\n";
-            }
-
-            $dbh = $connectionBuilder->getConnection(
-                 {'RaiseError' => 1, 'PrintError' => 0, 'AutoCommit' => 1, 'ShowErrorStatement' => 1}
-            );
-        };
-        if ($@ || ! $dbh) {
-            $self->{'error'} = "failed_run_db_connection";
-            croak "Failed to connect to the database $@\n$!\n";
-        }
-    }
-
-    # Allow UUID to be provided, basically for testing as this is a random value.
-    if (! $self->{'_fastqUploadUuid'}) {
-        $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
-    }
-    if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
-         $self->{'error'} = 'bad_uuid';
-         croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
-    }
-    $self->sayVerbose("Starting run for $runMode.");
-    $self->sayVerbose("Analysis UUID = $self->{'_fastqUploadUuid'}.");
-
-
-
-    # Run as selected.
-    eval {
-        if ( $runMode eq "ALL" ) {
-            $self->doZip( $dbh );
-            $self->doMeta( $dbh );
-            $self->doValidate( $dbh );
-            $self->doSubmitMeta( $dbh );
-            $self->doSubmitFastq( $dbh );
-            $self->doLive( $dbh );
-        }
-        elsif ($runMode eq "ZIP" ) {
-            $self->doZip( $dbh );
-        }
-        elsif ($runMode eq "META" ) {
-            $self->doMeta( $dbh );
-        }
-        elsif ($runMode eq "VALIDATE" ) {
-            $self->doValidate( $dbh );
-        }
-        elsif ($runMode eq "SUBMIT_META" ) {
-            $self->doSubmitMeta( $dbh );
-        }
-        elsif ($runMode eq "SUBMIT_FASTQ" ) {
-            $self->doSubmitFastq( $dbh );
-        }
-        elsif ($runMode eq "LIVE" ) {
-            $self->doLive( $dbh );
-        }
-        elsif ($runMode eq "RERUN" ) {
-            $self->doRerun( $dbh );
-        }
-        else {
-            $self->{'error'} = "failed_run_unknown_run_mode";
-            croak "Illegal runMode \"$runMode\" specified.\n";
-        }
-    };
-
-    if ($@) {
-        my $error = $@;
-        if ( $self->{'_fastqUploadId'})  {
-            if (! $self->{'error'}) {
-                $self->{'error'} = 'failed_run_unknown_error';
-            }
-            eval {
-                $self->_updateUploadStatus( $dbh, $self->{'_fastqUploadId'}, $self->{'error'} );
-            };
-            if ($@) {
-                $error .= " ALSO: Did not update UPLOAD: $self->{'_fastqUploadId'}\n";
-            }
-        }
-        eval {
-            $dbh->disconnect();
-        };
-        if ($@) {
-            $error .= " ALSO: error disconnecting from database: $@\n";
-        }
-        if (! $self->{'error'}) {
-            $self->{'error'} = 'failed_run_unknown_error';
-        }
-        croak $error;
-    }
-    else {
-        $dbh->disconnect();
-        if ($@) {
-            my $error .= "$@";
-            warn "Problem encountered disconnecting from the database - Likely ok: $error\n";
-        }
-        $self->sayVerbose("Finishing run for $runMode.");
-        return 1;
-    }
-}
 
 ## doZip()
 
@@ -265,9 +142,7 @@ set to are:
 'zipval\_error\_missing\_zip', 'zipval\_error\_tiny\_zip', 'zipval\_error\_md5',
 'zipval\_error\_file\_insert' 'zipval\_error\_unknown'
 
-- 1
-
-Identify a lane to zip. If none found, exits, else inserts a new upload record
+1. Identify a lane to zip. If none found, exits, else inserts a new upload record
 with ` target = 'CGHUB' and status = 'zip_running' `. The is done as a
 transaction to allow parallel running. For a lane to be selected, it must have
 an existing upload record with ` target = 'CGHUB' and external_status = 'live' `.
@@ -275,38 +150,27 @@ That upload record is linked through a ` file ` table record via the ` vw_files 
 view to obtain the lane. If there are any upload records associated with the
 selected lane that have ` target = CGHUB_FASTQ `, then that lane will not
 be selected.
-
-- 2
-
-Once selected, a new (uuidgen named) directory for this upload is created in
+2. Once selected, a new (uuidgen named) directory for this upload is created in
 the instance's 'uploadDataRoot' directory. The previously generated
 `experiment.xml` and `run.xml` are copied there. The analysis.xml is not
 copied as it will be recreated by the META step. The upload record is
 modified to record this new information, or to indicate failure if it did not
 work.
 
-__NOTE__: Using copies of original xml may not work for older runs as they may
-have been consitent only with prior versions of the uplaod schema.
+    __NOTE__: Using copies of original xml may not work for older runs as they may
+    have been consitent only with prior versions of the uplaod schema.
 
-- 3
-
-The biggest problem is finding the fastq file or files for this lane. Since
+3. The biggest problem is finding the fastq file or files for this lane. Since
 there is no way to directly identify the input fastq files used by the
 Mapsplice run, the assumption is made that The file/s generated by
 any completed FinalizeCasava run for this lane, if present, are used. IF not
 present then the file/s generated by any completed srf2fastq run is used. If
 neither are present, then an error is signalled and the upload record is updated.
-
-- 4
-
-The fastq files identified are then validated on the system, and then tar/gzipped
+4. The fastq files identified are then validated on the system, and then tar/gzipped
 to the spedified OutputDataRoot, in a subdirectory named for this program, named
 like flowcell\_lane\_barcode.fastq.tar.zip. If errors occur, updates upload
 status.
-
-- 5
-
-When done, validate output, calculate md5 sum, insert a new file record and
+5. When done, validate output, calculate md5 sum, insert a new file record and
 new processing\_files records (linking the new file and the processing\_ids for
 the  input fastq). Updates upload record to zip\_completed to indicate done.
 
@@ -717,8 +581,6 @@ Errors
     my someFileSQL = "... AND file.file_id EXISTS ("
        . _fastqFilesSqlSubSelect( $wf_accession ) . " )";
 
-
-
 Given a workflow accession, returns a string that is an SQL subselect. When
 executed, this subselect will return a list of file.fastq\_id for fastq files
 from the given workflow id.
@@ -755,10 +617,6 @@ fastq files come from. If this is not defined, it will first look at 613863
 (FinalizeCasava) and then 851553 (srf2fastq) and use the first ones it finds.
 Reports whatever riles it finds (one or two) without otherwise checking for
 single or paired ends.
-
-
-
-
 
 Dies for a lot of database errors.
 
@@ -798,8 +656,6 @@ to the specified $newStatus and $externalStatus strings.
 
 Actually does the zipping, and returns 1, or dies setting 'error' and returning
 an error message.
-
-
 
 ## \_changeUploadRunStage
 
@@ -925,12 +781,10 @@ Contributors:
   Lisle Mose (get\_sample.pl and generate\_cghub\_metadata.pl)
   Brian O'Conner
 
-
-
 # DEVELOPMENT
 
 This module is developed and hosted on GitHub, at
-["/github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq" in p5-Bio-SeqWare-Config https:](http://search.cpan.org/perldoc?p5-Bio-SeqWare-Config https:#/github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq).
+["/github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq" in p5-Bio-SeqWare-Config https:](https://metacpan.org/pod/p5-Bio-SeqWare-Config&#x20;https:#github.com-theobio-p5-Bio-SeqWare-Uploads-CgHub-Fastq).
 It is not currently on CPAN, and I don't have any immediate plans to post it
 there unless requested by core SeqWare developers (It is not my place to
 set out a module name hierarchy for the project as a whole :)
@@ -939,9 +793,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.027
+      $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.028
     or
-      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.027.tar.gz
+      $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.028.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest _released_ version. If you leave off the @version
@@ -970,7 +824,7 @@ Note: you must have a GitHub account to submit issues.
 
 # ACKNOWLEDGEMENTS
 
-This module was developed for use with [SegWare ](http://search.cpan.org/perldoc?http:#/seqware.github.io).
+This module was developed for use with [SegWare ](https://metacpan.org/pod/&#x20;http:#seqware.github.io).
 
 # LICENSE AND COPYRIGHT
 

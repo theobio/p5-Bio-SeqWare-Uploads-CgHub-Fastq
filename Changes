@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.028 2014-02-20 19:00:00
+ [FIX] - Bad sql query fixed.
+
 0.000.027 2014-02-06 16:15:00
  [ADD] - New experiment.xml experiment_attribute added - SAMPLE_PRESERVATION 
  [FIX] - When find nothing to run, causes error and skips db upload id.
