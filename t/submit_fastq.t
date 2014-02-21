@@ -54,6 +54,10 @@ my $OPT_HR = { %$OPT,
     'rerun'              => 2,
     'xmlSchema'          => 'SRA_1-5',
     'templateBaseDir'    => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
+        'cghubSubmitExec'  => '/usr/bin/cgsubmit',
+        'cghubUploadExec'  => '/usr/bin/gtupload',
+        'cghubSubmitUrl'   => 'https://cghub.ucsc.edu/',
+        'chghubSubmitCert' => "/datastore/alldata/tcga/CGHUB/Key.20140221/cghub.key",
 };
 
 my $MOCK_DBH = DBI->connect(

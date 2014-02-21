@@ -19,7 +19,7 @@ name: Bio-SeqWare-Uploads-CgHub-Fastq
 provides:
   Bio::SeqWare::Uploads::CgHub::Fastq:
     file: lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm
-    version: 0.000029
+    version: 0.000030
 requires:
   Bio::SeqWare::Config: 0.000003
   Bio::SeqWare::Db::Connection: 0.000004
@@ -32,4 +32,4 @@ requires:
   perl: 0.014
 resources:
   license: http://opensource.org/licenses/gpl-license.php
-version: 0.000029
+version: 0.000030

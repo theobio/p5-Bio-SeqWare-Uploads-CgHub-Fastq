@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.029
+Version 0.000.030
 
 =cut
 
@@ -411,12 +411,16 @@ sub _processCommandLine {
 
     # Local defaults
     my $optionsHR = {
-        'minFastqSize'     => 10 * 1000 * 1000,
-        'runMode'          => 'ALL',
-        'xmlSchema'        => 'SRA_1-5',
-        'templateBaseDir'  => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
-        'recheckWaitHours' => 24,
-        'rerunWait'        => 168,
+        'minFastqSize'       => 10 * 1000 * 1000,
+        'runMode'            => 'ALL',
+        'xmlSchema'          => 'SRA_1-5',
+        'templateBaseDir'    => dist_dir('Bio-SeqWare-Uploads-CgHub-Fastq'),
+        'recheckWaitHours'   => 24,
+        'rerunWait'          => 168,
+        'cghubSubmitExec'  => '/usr/bin/cgsubmit',
+        'cghubUploadExec'  => '/usr/bin/gtupload',
+        'cghubSubmitUrl'   => 'https://cghub.ucsc.edu/',
+        'chghubSubmitCert' => "/datastore/alldata/tcga/CGHUB/Key.20140221/cghub.key",
     };
 
     # Combine local defaults with (over-ride by) config file options
@@ -462,9 +466,10 @@ sub _processCommandLine {
         'xmlSchema=s'          => \$opt{'xmlSchema'},
         'templateBaseDir=s'    => \$opt{'templateBaseDir'},
 
-        'cghubSubmitExec=s'    => \$opt{'/usr/bin/cgsubmit'},
-        'cghubSubmitUrl=s'     => \$opt{'https://cghub.ucsc.edu/'},
-        'chghubSubmitCert=s'   => \$opt{"/datastore/alldata/tcga/CGHUB/Key.20140221/cghub.key"},
+        'cghubSubmitExec=s'    => \$opt{'cghubSubmitExec'},
+        'cghubUploadExec=s'    => \$opt{'cghubUploadExec'},
+        'cghubSubmitUrl=s'     => \$opt{'cghubSubmitUrl'},
+        'chghubSubmitCert=s'   => \$opt{"chghubSubmitCert"},
 
         'verbose'      => \$opt{'verbose'},
         'version'      => sub {
