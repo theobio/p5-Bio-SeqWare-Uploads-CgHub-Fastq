@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.028
+Version 0.000.029
 
 =cut
 
@@ -461,6 +461,10 @@ sub _processCommandLine {
 
         'xmlSchema=s'          => \$opt{'xmlSchema'},
         'templateBaseDir=s'    => \$opt{'templateBaseDir'},
+
+        'cghubSubmitExec=s'    => \$opt{'/usr/bin/cgsubmit'},
+        'cghubSubmitUrl=s'     => \$opt{'https://cghub.ucsc.edu/'},
+        'chghubSubmitCert=s'   => \$opt{"/datastore/alldata/tcga/CGHUB/Key.20140221/cghub.key"},
 
         'verbose'      => \$opt{'verbose'},
         'version'      => sub {

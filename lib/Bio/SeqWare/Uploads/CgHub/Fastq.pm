@@ -35,11 +35,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.028
+Version 0.000.029
 
 =cut
 
-our $VERSION = '0.000028';
+our $VERSION = '0.000029';
 
 =head1 SYNOPSIS
 
@@ -98,7 +98,7 @@ sub new {
     my %copy = %$param;
     my $self = {
         'error'   => undef,
-        'myName' => 'upload-cghub-fastq_0.0.1',
+        'myName' => 'upload-cghub-fastq_' . $VERSION,
 
         '_laneId'         => undef,
         '_sampleId'       => undef,
@@ -3151,9 +3151,6 @@ sub _submitMeta {
         croak ("_submitMeta() missing \$uploadHR parameter.");
     }
 
-    my $CGSUBMIT_EXEC = '/usr/bin/cgsubmit';
-    my $CGHUB_URL = 'https://cghub.ucsc.edu/';
-    my $SECURE_CERTIFICATE = "/datastore/alldata/tcga/CGHUB/Key.20130213/mykey.pem";
     my $OK_SUBMIT_META_REGEXP = qr/Metadata Submission Succeeded\./m;
     my $ERROR_RESUBMIT_META_REGEXP = qr/Error\s*: You are attempting to submit an analysis using a uuid that already exists within the system and is not in the upload or submitting state/m;
 
@@ -3162,7 +3159,7 @@ sub _submitMeta {
         $uploadHR->{'cghub_analysis_id'}
     );
 
-    my $command = "$CGSUBMIT_EXEC -s $CGHUB_URL -c $SECURE_CERTIFICATE -u $fastqOutDir  2>&1";
+    my $command = "$self->{cghubSubmitExec} -s $self->{cghubSubmitUrl} -c $self->{chghubSubmitCert} -u $fastqOutDir 2>&1";
 
     $self->sayVerbose( "SUBMIT META COMMAND: \"$command\"\n" );
 
@@ -3553,9 +3550,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.028
+   $ cpanm git://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.029
  or
-   $ cpanm https://github.com/theobio/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.028.tar.gz
+   $ cpanm https://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.029.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version

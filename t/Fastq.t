@@ -824,7 +824,7 @@ sub testNew {
         my $got = $obj->getAll();
         my $want = {
             'runMode' => 'ALL',
-            'myName'  => 'upload-cghub-fastq_0.0.1',
+            'myName'  => 'upload-cghub-fastq_' . $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION,
             'error'   => undef,
         };
 	    is_deeply($got, $want, "Default object created saftley");
@@ -1045,7 +1045,7 @@ sub testGetAll {
     {
         my $got = $OBJ->getAll();
         my $want = $OPT_HR;
-        $want->{'myName'}  = 'upload-cghub-fastq_0.0.1';
+        $want->{'myName'}  = 'upload-cghub-fastq_' . $Bio::SeqWare::Uploads::CgHub::Fastq::VERSION;
         $want->{'error'}   = undef,
 
         is_deeply( $got, $want, "Get everything expected");

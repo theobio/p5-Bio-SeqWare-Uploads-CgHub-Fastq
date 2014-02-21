@@ -1,5 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
 
+0.000.029 2014-02-20 19:00:00
+ [ADD] - Parameterized sghub connect info. Changed defaults
+
 0.000.028 2014-02-20 19:00:00
  [FIX] - Bad sql query fixed.
 
