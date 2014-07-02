@@ -8,25 +8,28 @@ use File::Path;
 use POSIX;
 
 
-# SRJ: Unversioned -> v0.000002. Changes include:
-# Added version
-# Added pod
-# Output includes "" entry for missing barcode (always has fourth column).
-
+# SRJ: Unversioned -> v0.000.002. Changes include:
+#   Added version
+#   Added pod
+#   Output includes "" entry for missing barcode (always has fourth column).
+# SRJ: v0.000.003
+# SRJ: v0.000.031
+# Sync with installed version, deprecated cghub upload process.
+# Use correct table, prevents duplicate problems.
 
 =head1 NAME
 
-get_samples.pl - Output samples to process (by step) for cghub uploading
+get_samples.pl - Output samples to process (by step) for cghub 
 
 =cut
 
 =head1 VERSION
 
-Version 0.000.002
+Version 0.000.031
 
 =cut
 
-our $VERSION = 0.000002;
+our $VERSION = 0.000031;
 
 =head1 SYNOPSIS
 
@@ -38,7 +41,8 @@ our $VERSION = 0.000002;
         --dbhost swprod.bioinf.unc.edu \
         --mode ready-for-metadata
 
-    # To utput samples for input to generate_cghub_metadata.pl
+    # DEPRECATED
+    # To output samples for input to generate_cghub_metadata.pl
     get_samples.pl \
         --username seqware
         --password ***
@@ -53,26 +57,22 @@ our $VERSION = 0.000002;
         --db       SeqWare database name
         --dbhost   SeqWare database host machine
 
-        --mode     ready-for-metadata | ready-for-upload
+        --mode     ready-for-metadata | ready-for-upload (deprecated)
 
 =cut
 
 =head1 DESCRIPTION
 
 Depending on mode specified by --mode, selects samples from the vw_tcga_v2
-view that are ready for either metadata generation (--mode ready-for-metadata)
-or for actual upload (--mode ready-for-upload). A list of samples meeting
-criteria will be dumped to standard out as if a sample file had been echoed.
-This is then redirected to another file as input to allow chained processing.
+view samples that are ready for metadata generation (--mode ready-for-metadata).
+A list of samples meeting criteria will be dumped to standard out as if a sample
+file had been echoed. This is then redirected to another file as input to allow
+chained processing.
 
-For meta-data generation, will select all samples in vw_tcga_v2 that have
-completed processin, but do not have an upload record. The metadata generation
-script will create an upload record, preventing samples from being rerun.
-
-For upload processing, selects all samples in vw_tcga_v2 that have completed
-processing, have an upload record, and have the status METADATA_GENERATED.
-The upload script will change this status, preventing samples from being
-re-uploaded.
+For meta-data generation, will select all samples in the vw_tcga_v2 table that
+have completed processing, but do not have an upload record. The metadata
+generation script will create an upload record, preventing samples from being
+rerun.
 
 =cut
 
@@ -108,24 +108,28 @@ my $metadata_sth = $database->prepare(
      order by
         sample");
 
-my $upload_sth = $database->prepare(
-    "select 
-        v.sample, v.flowcell, v.lane, v.barcode
-     from
-        vw_tcga_v2 v, upload u
-     where
-        v.sample_id = u.sample_id and
-        v.status = 'completed' and
-        u.status = 'METADATA_GENERATED'
-     order by
-        sample");
+# Should no longer be using ready-for-upload mode.
+#
+# my $upload_sth = $database->prepare(
+#    "select 
+#        v.sample, v.flowcell, v.lane, v.barcode
+#     from
+#        vw_tcga_v2 v, upload u
+#     where
+#        v.sample_id = u.sample_id and
+#        v.status = 'completed' and
+#        u.status = 'METADATA_GENERATED'
+#     order by
+#        sample"
+# );
 
 my $sth;
 
 if ($mode eq "ready-for-metadata") {
 	$sth =  $metadata_sth;
 } elsif ($mode eq "ready-for-upload") {
-	$sth = $upload_sth;
+    die "Illegal use of deprecated mode."
+#	$sth = $upload_sth;
 } else {
 	print ("Please specify a mode [ready-for-metadata, ready-for-upload]");
 	exit (-1);
