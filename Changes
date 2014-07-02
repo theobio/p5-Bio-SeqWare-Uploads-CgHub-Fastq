@@ -1,4 +1,8 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
+0.000.031 2014-07-02 12:15:00
+ [FIX] - Duplicate upload bug
+ [ADD] - Added several scripts to bin
+ [TODO!] - Bring scripts into system; use module config, db connect, version.
 
 0.000.030 2014-02-20 15:00:00
  [FIX] - Parameterized cghub connect info incorrectly, missed changing upload.

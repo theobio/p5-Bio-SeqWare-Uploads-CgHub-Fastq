@@ -39,7 +39,7 @@ Version 0.000.030
 
 =cut
 
-our $VERSION = '0.000030';
+our $VERSION = '0.000031';
 
 =head1 SYNOPSIS
 
@@ -3549,9 +3549,9 @@ set out a module name hierarchy for the project as a whole :)
 
 You can install a version of this module directly from github using
 
-   $ cpanm git://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.030
+   $ cpanm git://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.031
  or
-   $ cpanm https://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.030.tar.gz
+   $ cpanm https://github.com/theobio/archive/p5-Bio-SeqWare-Uploads-CgHub-Fastq.git@v0.000.031.tar.gz
 
 Any version can be specified by modifying the tag name, following the @;
 the above installs the latest I<released> version. If you leave off the @version
