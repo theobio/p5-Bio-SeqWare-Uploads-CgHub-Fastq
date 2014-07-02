@@ -5,6 +5,9 @@ use warnings;
 use DBI;
 use Getopt::Long;
 
+# SRJ : Unversioned -> 0.000.031
+our $VERSION = 0.000031;
+
 my ($username, $password, $dbhost, $seqware_meta_db);
 
 my $getOptResult = GetOptions(
@@ -18,11 +21,8 @@ my $getOptResult = GetOptions(
 my $dbn = "DBI:Pg:dbname=$seqware_meta_db;host=$dbhost";
 my $database=DBI->connect( $dbn, $username, $password, {RaiseError => 1} );
 
-
 my $sql = "select u.cghub_analysis_id, u.metadata_dir from upload u
     where target = 'CGHUB' and u.status = 'METADATA_GENERATED' ";
-#and v.status = 'completed' order by v.priority, u.tstmp limit 1";
-
 
 # Get sample / upload info
 my $sth1 = $database->prepare( $sql);
