@@ -8,7 +8,7 @@ use Getopt::Long;
 use XML::Parser;
 use LWP::Simple;
 
-our $version = 0.000031;
+our $VERSION = 0.000031;
 
 # SRJ: Unversioned -> 0.000031;
 # Catching up with installed version, for eventual inclusion.
