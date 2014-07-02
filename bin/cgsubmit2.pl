@@ -5,8 +5,8 @@ use strict;
 use DBI;
 use Getopt::Long;
 
-our $VERSION = 0.001000;
-# SRJ: Unversioned -> v0.001000
+our $VERSION = 0.000031;
+# SRJ: Unversioned -> v0.000031
 
 my ($username, $password, $dbhost, $seqware_meta_db);
 
