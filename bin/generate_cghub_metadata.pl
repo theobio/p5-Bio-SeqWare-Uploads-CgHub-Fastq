@@ -17,7 +17,7 @@ generate_cghub_metadeata.pl - create dirs of metadata for piped sample list.
 
 =head1 VERSION
 
-Version 0.000.002
+Version 0.000.031
 
 =cut
 
@@ -26,7 +26,7 @@ Version 0.000.002
   UPLOAD_DIR=/datastore/tcga/cghub
   SOFT_DIR=/datastore/tier1data/nextgenseq/seqware-analysis/software
 
-  perl $UPLOAD_DIR/scripts/get_samples.000_002.pl /
+  perl $UPLOAD_DIR/scripts/get_samples.pl /
       --username seqware /
       --password *** /
       --db seqware_meta_db /
@@ -67,7 +67,17 @@ The directory is created as a UUID in the file specified
 # CGHub xml generation script originally based upon analysis_hack.pl
 #
 
-our $VERSION = 0.002000;
+our $VERSION = 0.000031;
+
+###
+# SRJ: 0.000002 -> 0.000031. Changes include:
+#
+# Catch up with installed code for eventual inclusion in installable.
+# Modify logic for recent processing changes.
+# Add a couple more safty stops (as "nexts").
+# Modified error sample message to only display if have error samples.
+#
+###
 # SRJ: Unversioned -> v0.002000. Changes include:
 #
 # Add retrieval from sample expriment_id, preservation, type.
@@ -90,6 +100,8 @@ our $VERSION = 0.002000;
 # Validate run mode parameters in context of v2_paired_end.
 # Set variables for workflow automatically if v2_paired_end is set.
 # Set variables correctly if v2_paired_end is set and workflow_accession was specified.
+#
+###
 
 my ( $template_dir,   # Filename for the template.
      $output_dir,     # Full path filename to write out to.
@@ -101,6 +113,8 @@ my ( $template_dir,   # Filename for the template.
      $v2_single_end,  # Is this v2 single end?
      $v2_paired_end   # is this v2 paired end? (#added to allow auto-determination of bam file.)
 );
+
+$no_prior_check = 0; # By default, should sheck for prior existance.
 
 # Required: database to read info from
 my ( $username,         # Database user
@@ -311,16 +325,16 @@ while(<STDIN>) {
   $sth1->execute($flowcell, $lane_index, $sample, $barcode);
   my ($sample_id, $lane_accession, $sample_uuid, $experiment_id, $type) = $sth1->fetchrow_array;
 
+  # Error if can't get sample_id or if get two different sample ids.
   if (!defined($sample_id) || "" eq $sample_id) {
     print "Unable to locate sample in db: $sample_descriptor\n";
     push(@invalid_samples, $sample_descriptor);
     $sth1->finish();
     next;
   }
-
   if ($sth1->fetchrow_array) {
     print "ERROR!  Multiple samples returned for: $sample_descriptor\n";
-    exit(1);
+    next;
   }
   $sth1->finish();
 
@@ -342,25 +356,29 @@ while(<STDIN>) {
           }
           else {
               # Only these are allowed if $v2_paired_end is true.
-              print "ERROR! Shouldn't be possible - unknown wf_accession: $workflow_accession\n";
-              exit(1);
+              die "ERROR! Shouldn't be possible - unknown wf_accession: $workflow_accession\n";
           }
       }
+      # Determine workflow based on sample info; not possible without type field.
+      elsif (! defined $type || $type eq "") {
+         print "Oops, sample $sample_id, $sample, has no type. Need that!";
+         next;
+      }
+
       # If wf_accession not set, determine workflow from experiment_id and type
-      # ... hackity hack...
+      # ... hackity hack... Replicating logic in the workflow runners
       elsif (
              $experiment_id == 79
           || $experiment_id == 80
           || $experiment_id == 85
           || $experiment_id == 91
           || $experiment_id == 92
-          || $experiment_id == 93
       ) {
           $workflow = 'MapspliceRSEM_no_fusion';
           $workflow_version = '0.7.6';
           $workflow_accession = 1510913;
       }
-      elsif ($type =~ /HNSC/i) {
+      elsif ($type =~ /HNSC/i || $type =~ /SARC/i || $experiment_id == 93 ) {
           $workflow = 'MapspliceRSEM';
           $workflow_version = '0.7.5';
           $workflow_accession = 1476030;
@@ -376,12 +394,10 @@ while(<STDIN>) {
 	  $upload_sth->execute($sample_id);
 	  my ($upload_count) = $upload_sth->fetchrow_array;
 	  $upload_sth->finish();
-	 #George test for kirc 
-	  #if ($upload_count > 0) {
-	  #  print "Prior upload record exists for: $sample_descriptor\n";
-	  #  push(@invalid_samples, $sample_descriptor);
-	  #  next;
-	  #}
+	  if ($upload_count > 0) {
+	     print( "Prior upload record exists for: $sample_descriptor\n" );
+	     next;
+	  }
   }
 
   if ($dummy_aliquot_id) {
@@ -687,13 +703,15 @@ sub buildExperimentXml {
 
 # Write error samples to a file
 sub recordErrorSamples {
-    print "\nWriting error samples to: $error_file\n";
-
-    open ERRORS, ">>$error_file" or die "can't open '$error_file': $!";
-    foreach (@invalid_samples) {
-        print ERRORS $_ . "\n";
+    if (@invalid_samples) {
+        my $errorCount = scalar @invalid_samples;
+        print "\nWriting $errorCount error samples to: $error_file\n";
+        open ERRORS, ">>$error_file" or die "can't open '$error_file': $!";
+        foreach (@invalid_samples) {
+            print ERRORS $_ . "\n";
+        }
+        close ERRORS; 
     }
-    close ERRORS; 
 }
 
 # Insert tracking information into upload and upload_file tables.
