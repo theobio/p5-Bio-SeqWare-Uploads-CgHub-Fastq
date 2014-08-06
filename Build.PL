@@ -9,6 +9,7 @@ my $builder = Module::Build->new(
     dist_author         => q{Stuart R. Jefferys <srjefferys (at) gmail (dot) com>},
     dist_version_from   => 'lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm',
     release_status      => 'stable',
+    recursive_test_files => 1,
     configure_requires => {
         'Module::Build' => 0,
     },
