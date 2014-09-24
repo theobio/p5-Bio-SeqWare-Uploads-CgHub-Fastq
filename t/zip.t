@@ -263,7 +263,7 @@ sub test__getSampleSelectionSql {
         WHERE vwf.file_id       = uf.file_id
           AND uf.upload_id      = u.upload_id
           AND u.sample_id       = s.sample_id
-          AND u.target          = 'CGHUB'
+          AND (u.target         = 'CGHUB' or u.target = 'CGHUB_BAM')
           AND u.external_status = 'live'
           AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
           AND vwf.sample_id NOT IN (
