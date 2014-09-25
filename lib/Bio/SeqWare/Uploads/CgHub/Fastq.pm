@@ -2904,7 +2904,7 @@ sub _getTemplateDataReadLength {
          FROM upload AS u, upload_file AS uf, file AS f
          WHERE u.upload_id = uf.upload_id
            AND uf.file_id = f.file_id
-           AND u.target          = 'CGHUB'
+           AND (u.target          = 'CGHUB' or u.target = 'CGHUB_BAM')
            AND u.external_status = 'live'
            AND u.metadata_dir    = '/datastore/tcga/cghub/v2_uploads'
            AND u.sample_id       = ?";
@@ -2920,6 +2920,10 @@ sub _getTemplateDataReadLength {
         }
         unless (-f $bamFile) {
              croak "No such File: \"$bamFile\"\n";
+        }
+        $rowHR = $bamFileSTH->fetchrow_hashref();
+        if (! defined $bamFile) {
+             croak "Multiple bam files retrieved.\n";
         }
         $bamFileSTH->finish();
     };
