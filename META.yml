@@ -3,33 +3,34 @@ abstract: 'Support uploads of fastq files to cghub'
 author:
   - 'Stuart R. Jefferys <srjefferys (at) gmail (dot) com>'
 build_requires:
-  DBD::Mock: 0.018
-  Test::File::Contents: 0
-  Test::More: 0
-  Test::Output: 0
+  DBD::Mock: '0.018'
+  Test::Exception: '0'
+  Test::File::Contents: '0'
+  Test::More: '0'
+  Test::Output: '0'
 configure_requires:
-  Module::Build: 0
+  Module::Build: '0'
 dynamic_config: 1
-generated_by: 'Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921'
+generated_by: 'Module::Build version 0.4003, CPAN::Meta::Converter version 2.142060'
 license: open_source
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
-  version: 1.4
+  version: '1.4'
 name: Bio-SeqWare-Uploads-CgHub-Fastq
 provides:
   Bio::SeqWare::Uploads::CgHub::Fastq:
     file: lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm
-    version: 0.000031
+    version: '0.000032'
 requires:
-  Bio::SeqWare::Config: 0.000003
-  Bio::SeqWare::Db::Connection: 0.000004
-  DBD::Pg: 0
-  DBI: 0
-  File::ShareDir: 1.00
-  LWP::Simple: 0
-  Template: 0
-  XML::Simple: 0
-  perl: 0.014
+  Bio::SeqWare::Config: '0.000003'
+  Bio::SeqWare::Db::Connection: '0.000004'
+  DBD::Pg: '0'
+  DBI: '0'
+  File::ShareDir: '1.00'
+  LWP::Simple: '0'
+  Template: '0'
+  XML::Simple: '0'
+  perl: '0.014'
 resources:
-  license: http://opensource.org/licenses/gpl-license.php
-version: 0.000031
+  license: http://www.gnu.org/licenses/old-licenses/gpl-1.0.txt
+version: '0.000032'

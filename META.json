@@ -4,7 +4,7 @@
       "Stuart R. Jefferys <srjefferys (at) gmail (dot) com>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.4003, CPAN::Meta::Converter version 2.120921",
+   "generated_by" : "Module::Build version 0.4003, CPAN::Meta::Converter version 2.142060",
    "license" : [
       "open_source"
    ],
@@ -17,6 +17,7 @@
       "build" : {
          "requires" : {
             "DBD::Mock" : "0.018",
+            "Test::Exception" : "0",
             "Test::File::Contents" : "0",
             "Test::More" : "0",
             "Test::Output" : "0"
@@ -44,14 +45,14 @@
    "provides" : {
       "Bio::SeqWare::Uploads::CgHub::Fastq" : {
          "file" : "lib/Bio/SeqWare/Uploads/CgHub/Fastq.pm",
-         "version" : "0.000031"
+         "version" : "0.000032"
       }
    },
    "release_status" : "stable",
    "resources" : {
       "license" : [
-         "http://opensource.org/licenses/gpl-license.php"
+         "http://www.gnu.org/licenses/old-licenses/gpl-1.0.txt"
       ]
    },
-   "version" : "0.000031"
+   "version" : "0.000032"
 }
