@@ -981,10 +981,10 @@ sub test_sayVerbose {
     # Output with Uuid tag
     {
         my $obj = $CLASS->new( $OPT_HR );
-        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890AB';
+        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890ab';
         $obj->{'verbose'} = 1;
         my $text = 'Say something';
-        my $expectRE = qr/^567890AB: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
+        my $expectRE = qr/^567890ab: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - $text$/;
         {
             stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with uuid";
         }
@@ -993,10 +993,10 @@ sub test_sayVerbose {
     # Output with undefined message
     {
         my $obj = $CLASS->new( $OPT_HR );
-        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890AB';
+        $obj->{'_fastqUploadUuid'} = '12345678-1234-1234-1234-1234567890ab';
         $obj->{'verbose'} = 1;
         my $text = undef;
-        my $expectRE = qr/^567890AB: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - \( undef \)$/;
+        my $expectRE = qr/^567890ab: \[INFO\] \d\d\d\d-\d\d-\d\d_\d\d:\d\d:\d\d - \( undef \)$/;
         {
             stdout_like { $obj->sayVerbose( $text ); } $expectRE, "Verbose output with no message";
         }

@@ -1,4 +1,4 @@
-package Bio::SeqWare::Uploads::CgHub::Bam;
+package Bio::SeqWare::Uploads::CgHub::BamOLD;
 
 use 5.014;         # Eval $@ safe to use.
 use strict;        # Don't allow unsafe perl constructs.
@@ -149,6 +149,8 @@ of some steps might stop processing of others that don't care about that
 failure, but even branching workflows must fail the workflow as a whole if any
 branch fails, regardless of those that succeed.
 
+=cut
+
 =head2 Conventions
 
 Tasks or runmodes are named in all capital letters, words separated by
@@ -177,6 +179,8 @@ INIT_failed_bad_md5 ).
 
 No fields are intented for external use; data is made available or changed by
 calling methods.
+
+=cut
 
 =head2 Database
 
@@ -1247,8 +1251,6 @@ information is attached.
 
 =item details
 The details about the exception as provided by the db.
-
-=back
 
 =back
 

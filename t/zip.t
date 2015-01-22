@@ -492,11 +492,11 @@ sub test__fastqFilesSqlSubSelect {
 
         {
             my $got = $objToModify->_fastqFilesSqlSubSelect();
-            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 613863 AND vw_files.algorithm = 'FinalizeCasava'";
+            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 613863 AND vw_files.algorithm = 'FinalizeCasava' and meta_type like '%fastq%'";
             is ($got, $want, "Got expected sub select string from internal.");
         }{
             my $got = $objToModify->_fastqFilesSqlSubSelect($objToModify->{'_workflowAccession'});
-            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 613863 AND vw_files.algorithm = 'FinalizeCasava'";
+            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 613863 AND vw_files.algorithm = 'FinalizeCasava' and meta_type like '%fastq%'";
             is ($got, $want, "Got expected sub select string from explict.");
         }
     }{
@@ -505,11 +505,11 @@ sub test__fastqFilesSqlSubSelect {
 
         {
             my $got = $objToModify->_fastqFilesSqlSubSelect();
-            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 851553 AND vw_files.algorithm = 'srf2fastq'";
+            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 851553 AND vw_files.algorithm = 'srf2fastq' and meta_type like '%fastq%'";
             is ($got, $want, "Got alternate expected sub select string from internal.");
         }{
             my $got = $objToModify->_fastqFilesSqlSubSelect($objToModify->{'_workflowAccession'});
-            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 851553 AND vw_files.algorithm = 'srf2fastq'";
+            my $want = "SELECT vw_files.file_id FROM vw_files WHERE vw_files.workflow_accession = 851553 AND vw_files.algorithm = 'srf2fastq' and meta_type like '%fastq%'";
             is ($got, $want, "Got alternate expected sub select string from explict.");
         }
     }{

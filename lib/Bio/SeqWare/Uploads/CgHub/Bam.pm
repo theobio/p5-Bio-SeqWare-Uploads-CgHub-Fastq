@@ -1249,8 +1249,6 @@ The details about the exception as provided by the db.
 
 =back
 
-=back
-
 =item PARAM $exceptionName
 The name of the exception. Should be only letters and numbers and end in
 "Exception", although nothing enforces that. May be a known exception or an
