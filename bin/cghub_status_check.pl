@@ -8,12 +8,14 @@ use Getopt::Long;
 use XML::Parser;
 use LWP::Simple;
 
-our $VERSION = 0.000031;
+our $VERSION = 0.000032;
 
-# SRJ: Unversioned -> 0.000031;
+# SRJ: Unversioned -> 0.000.031;
 # Catching up with installed version, for eventual inclusion.
 # BugFix - No update should occur if status is not changing.
 #
+# SRJ: 0.000.031 -> 0.000.032;
+# Fix to update logic; was skipping local if status was undefined or "".
 print "CGHUB status check starting - " . scalar(localtime) . "\n";
 
 my ($username, $password, $dbhost, $seqware_meta_db);
@@ -45,7 +47,9 @@ my $cnt = 0;
 
 for (my $i = 0; $i < scalar @{$analysisIds}; $i++) {
 	my $cghubStatus = get_cghub_analysis_status($analysisIds->[$i]);
-	if ($cghubStatus ne "" && $localStatuses->[$i] && $cghubStatus ne $localStatuses->[$i]) {
+	if ( $cghubStatus ne "" && 
+	     ( ! defined $localStatuses->[$i] || $cghubStatus ne $localStatuses->[$i] )
+	) {
 		update_external_status($analysisIds->[$i], $cghubStatus);
 	}
 

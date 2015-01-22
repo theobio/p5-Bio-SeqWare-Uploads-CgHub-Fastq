@@ -365,6 +365,7 @@ sub _initBam {
     return 1;
 }
 
+
 =head1 INSTANCE METHODS
 
 =cut
@@ -1092,7 +1093,7 @@ sub _childStepOf {
     }
 }
 
-# Essentially a nested exception class
+# Essentially a nested exception handling class
 {
     my %ERRORS = (
         '???Exception' =>
@@ -1277,10 +1278,12 @@ of the exception followed by a colon and a space.)
 =cut
 
     sub _withError {
+    
         # Making every effort to not fail when this is called.
         my $self = shift;
         my $name = shift;
         my $contextHR = shift;
+    
         my $message;
     
         try {

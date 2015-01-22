@@ -16,6 +16,8 @@ use POSIX;
 # SRJ: v0.000.031
 # Sync with installed version, deprecated cghub upload process.
 # Use correct table, prevents duplicate problems.
+# SRJ: v0.000.032
+# Changed how to select samples
 
 =head1 NAME
 
@@ -99,14 +101,25 @@ my $dbn = "DBI:Pg:dbname=$seqware_meta_db;host=$dbhost";
 my $database=DBI->connect( $dbn, $username, $password, {RaiseError => 1} );
 
 my $metadata_sth = $database->prepare(
-    "select 
-        sample, flowcell, lane, barcode 
-     from 
-        vw_tcga_v2 
-     where 
-        status = 'completed' and sample_id not in (select sample_id from upload)
-     order by
-        sample");
+ "SELECT s.title AS sample, i.flowcell, i.lane, i.index AS barcode
+  FROM flowcell_decider_info i
+      LEFT JOIN sequencer_run sr ON i.flowcell = sr.name
+      LEFT JOIN lane l ON sr.sequencer_run_id = l.sequencer_run_id
+          AND ((l.lane_index + 1)::text) = i.lane
+          AND (l.barcode = i.index OR i.index IS NULL)
+      LEFT JOIN sample s ON l.sample_id = s.sample_id
+      LEFT JOIN vw_workflow_status v ON l.lane_id = v.lane_id
+          AND (v.workflow_id = ANY (ARRAY[38, 39, 40]))
+  WHERE i.info = 'tcga_samples'::text
+      AND v.status = 'completed'
+      AND ( (v.workflow_id = 40 AND s.experiment_id = ANY (ARRAY[79, 80, 85, 91, 92, 93]))
+          OR ( v.workflow_id = 39 AND s.type = 'HNSC'::text )
+          OR ( v.workflow_id = 39 AND s.type = 'SARC'::text )
+          OR v.workflow_id = 38 )
+      AND s.sample_id not in (select u.sample_id from upload u)
+  ORDER BY i.priority"
+);
+
 
 # Should no longer be using ready-for-upload mode.
 #

@@ -1,4 +1,4 @@
-#! /usr/bin/env perl
+#!/usr/bin/env perl
 
 use warnings;
 use strict;
@@ -19,7 +19,7 @@ upload-cghub-fastq - Zip and upload fastq files to cghub.
 
 =head1 VERSION
 
-Version 0.000.030
+Version 0.000.031
 
 =cut
 
@@ -473,7 +473,7 @@ sub _processCommandLine {
 
         'verbose'      => \$opt{'verbose'},
         'version'      => sub {
-            print "upload-cghub-fastq.pl v$VERSION\n";
+            print "upload-cghub-bam v$VERSION\n";
             exit 1;
         },
         'help'         => sub {

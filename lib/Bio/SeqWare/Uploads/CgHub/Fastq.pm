@@ -35,11 +35,11 @@ Bio::SeqWare::Uploads::CgHub::Fastq - Support uploads of fastq files to cghub
 
 =head1 VERSION
 
-Version 0.000.031
+Version 0.000.032
 
 =cut
 
-our $VERSION = '0.000031';
+our $VERSION = '0.000032';
 
 =head1 SYNOPSIS
 
@@ -134,7 +134,7 @@ sub getUuid() {
     }
 
     chomp $uuid;
-    return $uuid;
+    return lc $uuid;
 }
 
 =head2 reformatTimeStamp()
@@ -301,7 +301,7 @@ sub run {
     if (! $self->{'_fastqUploadUuid'}) {
         $self->{'_fastqUploadUuid'} = Bio::SeqWare::Uploads::CgHub::Fastq->getUuid();
     }
-    if (! $self->{'_fastqUploadUuid'} =~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}/i) {
+    if (! $self->{'_fastqUploadUuid'} =~ /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}/) {
          $self->{'error'} = 'bad_uuid';
          croak( "Not a valid uuid: $self->{'_fastqUploadUuid'}" );
     }
@@ -1360,7 +1360,7 @@ sub _deleteUploadDir {
         croak ( "Not removed as dir not absolute - $uploadDir\n" );
     }
 
-    if ( $uploadDir !~ /[\dA-f]{8}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{4}-[\dA-f]{12}$/i ) {
+    if ( $uploadDir !~ /[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/ ) {
         $self->{'error'} = "rm_upload_dir_bad_filename_format";
         croak ( "Not removed as doesn't look like a uuid - $uploadDir\n" );
     }
@@ -1866,12 +1866,12 @@ sub _fastqFilesSqlSubSelect {
     if ( $fastqWorkflowAccession == 613863 ) {
         $subSelect = "SELECT vw_files.file_id FROM vw_files"
                   . " WHERE vw_files.workflow_accession = 613863"
-                  . " AND vw_files.algorithm = 'FinalizeCasava'"
+                  . " AND vw_files.algorithm = 'FinalizeCasava' and meta_type like '%fastq%'"
     }
     elsif ( $fastqWorkflowAccession == 851553 ) {
         $subSelect = "SELECT vw_files.file_id FROM vw_files"
                   . " WHERE vw_files.workflow_accession = 851553"
-                  . " AND vw_files.algorithm = 'srf2fastq'"
+                  . " AND vw_files.algorithm = 'srf2fastq' and meta_type like '%fastq%'"
     }
     return $subSelect;
 }
@@ -3519,7 +3519,7 @@ sub sayVerbose {
     }
     my $timestamp = Bio::SeqWare::Uploads::CgHub::Fastq->getTimeStamp();
     my $uuid_tag = $self->{'_fastqUploadUuid'};
-    if ($uuid_tag && $uuid_tag =~ /([A-F0-9]{8})$/i) {
+    if ($uuid_tag && $uuid_tag =~ /([a-f0-9]{8})$/) {
         $uuid_tag = $1;
     }
     else {

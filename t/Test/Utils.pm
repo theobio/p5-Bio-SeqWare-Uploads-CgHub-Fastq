@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Test::Builder;
+use Test::Exception;
 use Sub::Exporter -setup => { exports => [
      'error_tag_ok',
      'dbMockStep_Begin',

@@ -1,4 +1,9 @@
 Revision history for p5-Bio-SeqWare-Uploads-CgHub-Fastq
+
+0.000.032 2014-01-21 17:00:00
+ [FIX] - Make uuid generation lower-case always
+ [FIX] - Check (_getSampleSelectionSql) for target='CGHUB_BAM' uploads too.
+
 0.000.031 2014-07-02 12:15:00
  [FIX] - Duplicate upload bug
  [ADD] - Added several scripts to bin
